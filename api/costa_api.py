@@ -1,8 +1,8 @@
 """
 COSTA · API de telemetría (Python)
 
-Lee por USB el Nodo B (receptor LoRa), interpreta los paquetes del BNO055 que manda
-el Nodo A, los guarda en una bitácora SQLite (data/bitacora.db) y los entrega al dashboard.
+Lee por USB el Nodo B (receptor LoRa), interpreta los paquetes del Nodo A
+(BNO055, DHT11, MQ-2 y GPS), los guarda en una bitácora SQLite (data/bitacora.db) y los entrega al dashboard.
 
     GET  /api/estado                 estado del puerto, sesión actual y conteos
     GET  /api/historial?n=500        últimas lecturas de la sesión actual (para gráficas)
@@ -16,7 +16,8 @@ el Nodo A, los guarda en una bitácora SQLite (data/bitacora.db) y los entrega a
     GET  /api/bitacora/eventos       eventos de una sesión  ?sesion=&limite=
 
 Formato que imprime el Nodo B (una línea por paquete):
-    RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal
+    RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal,temp,hum,gas,lat,lon,alt,sats,hdop
+    RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal   (firmware solo con BNO055)
     RX,<rssi>,<snr>,G,seq,t,h,wx,wy,wz,gas          (firmware anterior: solo se usa el giroscopio)
     # <mensaje>                                      (informativo, se guarda como evento)
 
@@ -94,20 +95,44 @@ def _num(s: str) -> float:
     return v
 
 
+def _opc(s: str, tipo=float, minimo=None, maximo=None):
+    """Campo opcional: vacío -> None. Valores fuera de rango -> ValueError."""
+    s = s.strip()
+    if not s:
+        return None
+    v = tipo(_num(s))
+    if (minimo is not None and v < minimo) or (maximo is not None and v > maximo):
+        raise ValueError(f"valor fuera de rango: {s}")
+    return v
+
+
 def interpretar_payload(payload: str) -> dict:
-    """Convierte 'B,...' o 'G,...' en un diccionario. Lanza ValueError si está mal formado."""
+    """Convierte 'B,...' o 'G,...' en un diccionario. Lanza ValueError si está mal formado.
+
+    B con 12 campos: solo BNO055.  B con 20 campos: BNO055 + DHT11 + MQ-2 + GPS."""
     p = payload.strip().split(",")
-    if p[0] == "B" and len(p) == 12:
+    if p[0] == "B" and len(p) in (12, 20):
         cal = p[11].strip()
         if len(cal) != 4 or not cal.isdigit():
             raise ValueError("calibración inválida")
-        return {
+        d = {
             "formato": "B", "seq": int(p[1]),
             "rumbo": _num(p[2]), "alabeo": _num(p[3]), "cabeceo": _num(p[4]),
             "wx": _num(p[5]), "wy": _num(p[6]), "wz": _num(p[7]),
             "ax": _num(p[8]), "ay": _num(p[9]), "az": _num(p[10]),
             "cal_sys": int(cal[0]), "cal_giro": int(cal[1]), "cal_acel": int(cal[2]), "cal_mag": int(cal[3]),
         }
+        if len(p) == 20:
+            d.update({
+                "temp": _opc(p[12], float, -40, 85), "hum": _opc(p[13], float, 0, 100),
+                "gas_mv": _opc(p[14], int, 0, 6000),
+                "lat": _opc(p[15], float, -90, 90), "lon": _opc(p[16], float, -180, 180),
+                "alt_gps": _opc(p[17], float, -500, 50000),
+                "sats": _opc(p[18], int, 0, 99), "hdop": _opc(p[19], float, 0, 100),
+            })
+            if (d["lat"] is None) != (d["lon"] is None):
+                raise ValueError("GPS con latitud o longitud incompleta")
+        return d
     if p[0] == "G" and len(p) == 8:
         # G,seq,t,h,wx,wy,wz,gas -> solo interesa el giroscopio del BNO055
         k = CORRECCION_GIRO_FORMATO_G

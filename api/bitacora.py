@@ -3,7 +3,7 @@ Bitácora SQLite de la misión COSTA.
 
 Tablas:
     sesiones  -> cada "misión" o prueba (se abre una nueva desde el dashboard)
-    lecturas  -> un renglón por paquete del BNO055 recibido por LoRa
+    lecturas  -> un renglón por paquete recibido por LoRa (BNO055, DHT11, MQ-2 y GPS)
     eventos   -> conexiones del puerto, mensajes del Nodo B, paquetes perdidos o inválidos, etc.
 
 Los tiempos (columna t) son milisegundos Unix con la hora de la PC al recibir el paquete.
@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS lecturas (
     wx        REAL, wy REAL, wz REAL, w_mag REAL,       -- °/s
     ax        REAL, ay REAL, az REAL, a_mag REAL,       -- m/s² (aceleración lineal)
     cal_sys   INTEGER, cal_giro INTEGER, cal_acel INTEGER, cal_mag INTEGER,  -- 0..3
+    temp      REAL, hum REAL,                         -- °C y % (DHT11)
+    gas_mv    INTEGER,                                -- mV en la salida AO del MQ-2
+    lat       REAL, lon REAL, alt_gps REAL,           -- grados decimales y m (GPS)
+    sats      INTEGER, hdop REAL,                     -- satélites en uso y precisión horizontal
     rssi      INTEGER,              -- dBm
     snr       REAL,                 -- dB
     perdidos  INTEGER NOT NULL DEFAULT 0,  -- paquetes que faltaron justo antes de este (huecos en seq)
@@ -52,6 +56,7 @@ CREATE INDEX IF NOT EXISTS ix_eventos_sesion_t ON eventos(sesion_id, t);
 COLUMNAS_LECTURA = [
     "t", "seq", "formato", "rumbo", "alabeo", "cabeceo", "wx", "wy", "wz", "w_mag",
     "ax", "ay", "az", "a_mag", "cal_sys", "cal_giro", "cal_acel", "cal_mag",
+    "temp", "hum", "gas_mv", "lat", "lon", "alt_gps", "sats", "hdop",
     "rssi", "snr", "perdidos", "crudo",
 ]
 
@@ -69,11 +74,22 @@ class Bitacora:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(ESQUEMA)
+        self._migrar()
         # Retoma la última sesión abierta; si no hay, crea la primera
         fila = self._db.execute("SELECT * FROM sesiones WHERE fin IS NULL ORDER BY id DESC LIMIT 1").fetchone()
         self.sesion = dict(fila) if fila else None
         if self.sesion is None:
             self.nueva_sesion()
+
+    def _migrar(self):
+        """Agrega a una bitácora vieja las columnas que se sumaron después (no borra nada)."""
+        nuevas = {"temp": "REAL", "hum": "REAL", "gas_mv": "INTEGER", "lat": "REAL", "lon": "REAL",
+                  "alt_gps": "REAL", "sats": "INTEGER", "hdop": "REAL"}
+        existentes = {f["name"] for f in self._db.execute("PRAGMA table_info(lecturas)")}
+        with self._db:
+            for col, tipo in nuevas.items():
+                if col not in existentes:
+                    self._db.execute(f"ALTER TABLE lecturas ADD COLUMN {col} {tipo}")
 
     # ---------- sesiones ----------
     def nueva_sesion(self, nombre: str | None = None) -> dict:

@@ -1,6 +1,11 @@
 # COSTA · Estación terrena
 
-Dashboard para el CanSat COSTA. Muestra únicamente la telemetría del **BNO055** recibida por LoRa (orientación, velocidad angular, aceleración lineal y calibración) y la guarda en una **bitácora SQLite**.
+Dashboard para el CanSat COSTA. Muestra la telemetría recibida por LoRa y la guarda en una **bitácora SQLite**:
+
+- **BNO055:** orientación, velocidad angular, aceleración lineal y calibración.
+- **DHT11:** temperatura y humedad.
+- **MQ-2:** gases (lectura relativa en mV).
+- **GPS NEO-6M (GY-GPS6MV2):** posición, altitud, satélites y HDOP, con el recorrido dibujado en un mapa.
 
 ## Arquitectura
 
@@ -8,36 +13,72 @@ Dashboard para el CanSat COSTA. Muestra únicamente la telemetría del **BNO055*
  CanSat                       Estación terrena (PC)
 ┌─────────────────┐  LoRa   ┌───────────────┐  USB   ┌────────────────────┐  SSE   ┌─────────────┐
 │ Nodo A (Heltec) │ ──────► │ Nodo B (TTGO) │ ─────► │ API Python :8000   │ ─────► │ Dashboard   │
-│ BNO055 (NDOF)   │ ◄────── │ RX,rssi,snr,… │ ◄───── │ api/costa_api.py   │ ◄───── │ (navegador) │
-└─────────────────┘ ACK/REQ └───────────────┘  REQ   │ data/bitacora.db   │  REST  └──────┬──────┘
+│ BNO055, DHT11,  │ ◄────── │ RX,rssi,snr,… │ ◄───── │ api/costa_api.py   │ ◄───── │ (navegador) │
+│ MQ-2, GPS       │ ACK/REQ └───────────────┘  REQ   │ data/bitacora.db   │  REST  └──────┬──────┘
+└─────────────────┘
                                                      └────────────────────┘               │ HTML
                                                        Node :3000 (server.js) ◄───────────┘
 ```
 
 | Parte | Archivo | Qué hace |
 |---|---|---|
-| Nodo A | `arduino/nodoA_heltec/nodoA_heltec.ino` | Lee el BNO055 y transmite cada 10 s (o con el botón, o cuando el Nodo B lo pide) |
+| Nodo A | `arduino/nodoA_heltec/nodoA_heltec.ino` | Lee todos los sensores y transmite cada 10 s (o con el botón, o cuando el Nodo B lo pide) |
 | Nodo B | `arduino/nodoB_ttgo/nodoB_ttgo.ino` | Recibe por LoRa y escribe cada paquete por USB con RSSI y SNR; acepta el comando `REQ` |
 | API Python | `api/costa_api.py`, `api/bitacora.py` | Lee el puerto serial, guarda todo en SQLite y lo entrega al dashboard |
 | Servidor Node | `server.js` | Sirve el dashboard |
 
+## Conexiones del Nodo A (Heltec WiFi LoRa 32 V2)
+
+| Sensor | Pin del sensor | Pin del Heltec V2 |
+|---|---|---|
+| **BNO055** | VIN | 3V3 |
+| | GND | GND |
+| | SDA | GPIO 4 (compartido con la pantalla) |
+| | SCL | GPIO 15 (compartido con la pantalla) |
+| **DHT11** | VCC (+) | 3V3 |
+| | GND (−) | GND |
+| | DATA (S / OUT) | GPIO 17 |
+| **GPS NEO-6M** (GY-GPS6MV2) | VCC | 3V3 |
+| | GND | GND |
+| | TX | GPIO 23 |
+| | RX | GPIO 22 (opcional; solo para configurar el GPS) |
+| **MQ-2** | VCC | 5 V (ver la nota de alimentación) |
+| | GND | GND |
+| | AO | divisor de voltaje → GPIO 36 |
+| | DO | sin conectar |
+
+**Divisor del MQ-2 (obligatorio):** la salida AO llega hasta 5 V y el ESP32 solo aguanta 3.3 V en sus pines. Conecta `AO —[10 kΩ]— GPIO 36 —[15 kΩ]— GND`; así 5 V se convierten en 3 V. Si usas otras resistencias, cambia `MQ2_R_SUP` y `MQ2_R_INF` en el sketch del Nodo A.
+
+**Otras notas:**
+- **DHT11:** si es el sensor suelto de 4 patas (no un módulo de 3 pines), pon una resistencia de 10 kΩ entre DATA y 3V3.
+- **GPS:** el TX del GPS va al pin que **recibe** del ESP32 (GPIO 23), no a otro TX. Necesita cielo abierto; el primer fix puede tardar de 30 s a varios minutos, y en interiores casi nunca lo consigue.
+- **Alimentación del MQ-2:** el calentador consume ~150 mA a 5 V. El pin de 5 V del Heltec solo tiene voltaje con USB conectado. Con batería LiPo necesitas un elevador a 5 V (por ejemplo, un MT3608). Además, el MQ-2 tarda ~2 min en estabilizarse al encenderse (24–48 h la primera vez) y sus lecturas son relativas, no ppm calibradas.
+- **Pines que no debes usar:** 5, 14, 18, 19, 26, 27, 34 y 35 (LoRa); 4, 15 y 16 (pantalla); 21 (Vext); 13 (botón); 25 (LED).
+
 ## Paquete LoRa del Nodo A
 
 ```
-B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal
-B,42,187.3,-2.1,4.6,0.3,-1.2,15.8,0.04,-0.11,0.20,3323
+B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal,temp,hum,gas,lat,lon,alt,sats,hdop
+B,42,187.3,-2.1,4.6,0.3,-1.2,15.8,0.04,-0.11,0.20,3323,27,61,1180,24.14263,-110.31280,25,7,1.2
 ```
 
-| Campo | Unidad | Origen en el BNO055 |
+| Campo | Unidad | Origen |
 |---|---|---|
-| rumbo, alabeo, cabeceo | ° | `VECTOR_EULER` (requiere modo NDOF) |
-| wx, wy, wz | °/s | `VECTOR_GYROSCOPE` |
-| ax, ay, az | m/s² | `VECTOR_LINEARACCEL` (sin gravedad) |
-| cal | 4 dígitos | calibración sistema/giro/acel/mag, de 0 a 3 |
+| rumbo, alabeo, cabeceo | ° | BNO055 `VECTOR_EULER` (modo NDOF, reloj interno) |
+| wx, wy, wz | °/s | BNO055 `VECTOR_GYROSCOPE` |
+| ax, ay, az | m/s² | BNO055 `VECTOR_LINEARACCEL` (sin gravedad) |
+| cal | 4 dígitos | calibración sistema/giro/acel/mag del BNO055, de 0 a 3 |
+| temp, hum | °C, % | DHT11 (enteros) |
+| gas | mV | salida AO del MQ-2, ya corregida por el divisor |
+| lat, lon | grados | GPS, 5 decimales (≈1 m) |
+| alt | m | altitud GPS sobre el nivel del mar |
+| sats, hdop | — | satélites en uso y precisión horizontal (menor = mejor) |
 
-El Nodo B lo reenvía por USB como `RX,<rssi>,<snr>,<paquete>`. Las líneas que empiezan con `#` son mensajes informativos y se guardan como eventos. La API también acepta el formato del firmware anterior (`G,...`) para no perder datos si aún no reflasheas el Nodo A; de ese formato solo toma el giroscopio.
+Un campo **vacío** significa que ese dato no está disponible en esa lectura: el DHT11 falló o el GPS aún no tiene fix. Si `sats` también viene vacío, no llega nada del GPS (revisa su cable TX → GPIO 23).
 
-> **El BNO055 no da posición.** Da orientación y movimiento. Para posición hace falta un GPS (NEO-6M/M8N) y para altitud un barómetro (BMP280/BME280).
+El Nodo B lo reenvía por USB como `RX,<rssi>,<snr>,<paquete>`. Las líneas que empiezan con `#` son mensajes informativos y se guardan como eventos. La API también acepta paquetes `B` de 12 campos (firmware anterior, solo BNO055) y el formato `G,...` del firmware original.
+
+> **Tiempo en el aire:** con SF12, BW 125 kHz y CR 4/8, un paquete de ~100 bytes tarda unos 6 s en transmitirse. Por eso el intervalo de envío no debe bajar de 10 s.
 
 ## Instalación (una sola vez)
 
@@ -47,7 +88,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt     # Windows: .venv\Scripts\pip install -r requirements.txt
 ```
 
-Librerías de Arduino: LoRa (Sandeep Mistry), Adafruit BNO055, Adafruit Unified Sensor y ESP8266 and ESP32 OLED driver for SSD1306 (ThingPulse).
+Librerías de Arduino (Gestor de librerías): LoRa (Sandeep Mistry), Adafruit BNO055, Adafruit Unified Sensor, ESP8266 and ESP32 OLED driver for SSD1306 (ThingPulse), **DHT sensor library** (Adafruit) y **TinyGPSPlus** (Mikal Hart). Las dos últimas solo las necesita el Nodo A.
 
 Placa a elegir en el Arduino IDE:
 
@@ -85,7 +126,7 @@ Si la API corre en otra computadora: `http://localhost:3000/?api=http://192.168.
 Todo lo que llega queda en `data/bitacora.db` y nunca se borra desde el dashboard.
 
 - **Sesiones:** cada prueba o lanzamiento es una sesión. Con "Nueva sesión" se cierra la actual y se abre otra; las anteriores siguen disponibles en el selector de la sección Bitácora.
-- **Lecturas:** un renglón por paquete, con hora de recepción, todos los campos, `|ω|`, `|a|`, RSSI, SNR, paquetes perdidos (huecos en `seq`) y la línea original (`crudo`).
+- **Lecturas:** un renglón por paquete, con hora de recepción, todos los campos (BNO055, DHT11, MQ-2 y GPS), `|ω|`, `|a|`, RSSI, SNR, paquetes perdidos (huecos en `seq`) y la línea original (`crudo`). Una bitácora creada antes de agregar los sensores se actualiza sola al iniciar la API: se agregan las columnas nuevas y no se borra nada.
 - **Eventos:** conexión o desconexión del Nodo B, paquetes perdidos, duplicados o inválidos, reinicios del Nodo A, mensajes del Nodo B y solicitudes de lectura.
 - **Exportar:** botón "Exportar CSV" en el dashboard, o `GET /api/bitacora.csv?sesion=N`.
 

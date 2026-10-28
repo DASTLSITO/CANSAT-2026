@@ -18,6 +18,7 @@ const C = {
   x: '#ff7a8a', y: '#7be38f', z: '#6ea8ff', mag: '#e8f1fb',
   rumbo: '#c8f560', alabeo: '#ff9f6b', cabeceo: '#b388ff',
   rssi: '#5ce1ff', snr: '#c8f560',
+  temp: '#ff9f6b', hum: '#6ea8ff', gas: '#d16bff', alt: '#5ce1ff',
   texto: '#8a9bb2', borde: 'rgba(140, 200, 255, 0.08)',
 };
 Chart.defaults.color = C.texto;
@@ -72,6 +73,23 @@ const gEnlace = new Chart($('g-enlace'), {
   ] },
   options: { scales: { y: { title: { display: true, text: 'dBm' } }, y2: ejeDer('dB') } },
 });
+const gAmb = new Chart($('g-amb'), {
+  type: 'line',
+  data: { labels: [], datasets: [
+    serie('Temperatura °C', C.temp, { yAxisID: 'y', spanGaps: true }),
+    serie('Humedad %', C.hum, { yAxisID: 'y2', spanGaps: true }),
+  ] },
+  options: { scales: { y: { title: { display: true, text: '°C' } }, y2: ejeDer('%', { min: 0, max: 100 }) } },
+});
+const gGas = new Chart($('g-gas'), {
+  type: 'line',
+  data: { labels: [], datasets: [
+    serie('Gas MQ-2 mV', C.gas, { yAxisID: 'y', fill: true, backgroundColor: 'rgba(209, 107, 255, 0.10)', spanGaps: true }),
+    serie('Altitud GPS m', C.alt, { yAxisID: 'y2', borderDash: [4, 4], spanGaps: true }),
+  ] },
+  options: { scales: { y: { min: 0, title: { display: true, text: 'mV' } }, y2: ejeDer('m') } },
+});
+
 // ================= Telemetría del BNO055 =================
 const horaCorta = (t) => new Date(t).toLocaleTimeString('es-MX', { hour12: false });
 const fechaHora = (t) => new Date(t).toLocaleString('es-MX', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -110,13 +128,16 @@ function redibujarTelemetria() {
   const v = historial.slice(-MAX_PUNTOS);
   const etiquetas = v.map((p) => horaCorta(p.t));
   const col = (k) => v.map((p) => p[k] ?? null);
-  for (const g of [gOri, gGiro, gAcel, gEnlace]) g.data.labels = etiquetas;
+  for (const g of [gOri, gGiro, gAcel, gEnlace, gAmb, gGas]) g.data.labels = etiquetas;
   [gOri.data.datasets[0].data, gOri.data.datasets[1].data, gOri.data.datasets[2].data] = [col('alabeo'), col('cabeceo'), col('rumbo')];
   [gGiro.data.datasets[0].data, gGiro.data.datasets[1].data, gGiro.data.datasets[2].data, gGiro.data.datasets[3].data] = [col('wx'), col('wy'), col('wz'), col('w_mag')];
   [gAcel.data.datasets[0].data, gAcel.data.datasets[1].data, gAcel.data.datasets[2].data, gAcel.data.datasets[3].data] = [col('ax'), col('ay'), col('az'), col('a_mag')];
   [gEnlace.data.datasets[0].data, gEnlace.data.datasets[1].data] = [col('rssi'), col('snr')];
-  [gOri, gGiro, gAcel, gEnlace].forEach((g) => g.update('none'));
+  [gAmb.data.datasets[0].data, gAmb.data.datasets[1].data] = [col('temp'), col('hum')];
+  [gGas.data.datasets[0].data, gGas.data.datasets[1].data] = [col('gas_mv'), col('alt_gps')];
+  [gOri, gGiro, gAcel, gEnlace, gAmb, gGas].forEach((g) => g.update('none'));
   pintarKPIs();
+  pintarAmbiente();
   pintarActitud(historial[historial.length - 1]);
   pintarHalo();
 }
@@ -285,13 +306,15 @@ function pintarTabla(filas) {
   $('b-sig').disabled = bPagina >= paginas;
   const s = sesiones.find((x) => x.id === bSesion);
   $('b-resumen').textContent = s ? `${bTotal} lecturas · ${s.perdidos} perdidas · desde ${fechaHora(s.inicio)}` : '';
-  if (!filas.length) { $('b-filas').innerHTML = '<tr><td colspan="14" class="vacio">Sin lecturas en esta sesión</td></tr>'; return; }
+  if (!filas.length) { $('b-filas').innerHTML = '<tr><td colspan="21" class="vacio">Sin lecturas en esta sesión</td></tr>'; return; }
   $('b-filas').innerHTML = filas.map((f) => `
     <tr>
       <td>${fechaHora(f.t)}</td><td>${f.seq ?? '—'}</td>
       <td>${fmt(f.rumbo)}</td><td>${fmt(f.alabeo)}</td><td>${fmt(f.cabeceo)}</td>
       <td>${fmt(f.wx)}</td><td>${fmt(f.wy)}</td><td>${fmt(f.wz)}</td><td><b>${fmt(f.w_mag)}</b></td>
       <td>${fmt(f.a_mag, 2)}</td><td class="mono">${calTexto(f)}</td>
+      <td>${fmt(f.temp, 0)}</td><td>${fmt(f.hum, 0)}</td><td>${fmt(f.gas_mv, 0)}</td>
+      <td>${fmt(f.lat, 5)}</td><td>${fmt(f.lon, 5)}</td><td>${fmt(f.alt_gps, 0)}</td><td>${fmt(f.sats, 0)}</td>
       <td>${fmt(f.rssi, 0)}</td><td>${fmt(f.snr)}</td>
       <td>${f.perdidos ? `<span class="etiqueta alerta" title="Paquetes que faltaron antes de este">−${f.perdidos}</span>` : ''}${f.formato === 'G' ? '<span class="etiqueta" title="Firmware antiguo">G</span>' : ''}</td>
     </tr>`).join('');
@@ -336,6 +359,10 @@ function pintarHalo() {
   $('f-alabeo').textContent = conUnidad(p?.alabeo, '°');
   $('f-cabeceo').textContent = conUnidad(p?.cabeceo, '°');
   $('f-w').textContent = conUnidad(p?.w_mag, '°/s');
+  $('f-temp').textContent = conUnidad(p?.temp, '°C', 0);
+  $('f-hum').textContent = conUnidad(p?.hum, '%', 0);
+  $('f-gas').textContent = conUnidad(p?.gas_mv, 'mV', 0);
+  $('f-alt').textContent = conUnidad(p?.alt_gps, 'm', 0);
   $('f-rssi').textContent = conUnidad(p?.rssi, 'dBm', 0);
   $('f-seq').textContent = p ? `#${p.seq}` : '—';
   $('f-pkts').textContent = receptor?.lecturas ?? historial.length;
@@ -367,6 +394,17 @@ function pintarHalo() {
   else if (cal[3] < 3) { chip.className = 'chip'; chip.querySelector('em').textContent = 'Mueve el CanSat en forma de ocho para calibrar el magnetómetro'; }
   else { chip.className = 'chip'; chip.querySelector('em').textContent = 'Calibrando… deja el CanSat quieto unos segundos'; }
 
+  // GPS
+  const ultFix = ultimaPosicion();
+  const chipGps = $('ins-gps-chip');
+  const conFix = p && p.lat !== null && p.lat !== undefined;
+  $('ins-gps-sub').textContent = p?.sats !== null && p?.sats !== undefined ? `${p.sats} satélites` + (p.hdop ? ` · HDOP ${fmt(p.hdop)}` : '') : 'NEO-6M';
+  $('ins-gps').textContent = conFix ? `${fmt(p.lat, 5)}, ${fmt(p.lon, 5)}` : ultFix ? 'Sin fix ahora' : '—';
+  if (!p) { chipGps.className = 'chip'; chipGps.querySelector('em').textContent = '—'; }
+  else if (conFix) { chipGps.className = 'chip ok'; chipGps.querySelector('em').textContent = `Altitud ${conUnidad(p.alt_gps, 'm', 0)}`; }
+  else if (p.sats === null || p.sats === undefined) { chipGps.className = 'chip alto'; chipGps.querySelector('em').textContent = p.gas_mv === null || p.gas_mv === undefined ? 'El firmware del Nodo A no envía GPS' : 'No llegan datos del GPS (revisa TX → GPIO 23)'; }
+  else { chipGps.className = 'chip'; chipGps.querySelector('em').textContent = ultFix ? `Última posición hace ${haceCuanto(ultFix.t)}` : 'Buscando satélites (necesita cielo abierto)'; }
+
   // Barras por eje
   const filas = [
     ['ωx', p?.wx, 100, '°/s', C.x], ['ωy', p?.wy, 100, '°/s', C.y], ['ωz', p?.wz, 100, '°/s', C.z],
@@ -381,6 +419,57 @@ function pintarHalo() {
       <b>${fmt(v, u === '°/s' ? 1 : 2)} <small class="tenue">${u}</small></b></div>`;
   }).join('');
   $('ejes-fuente').textContent = p ? `paquete #${p.seq} · ${horaCorta(p.t)}` : '';
+}
+
+// ================= Ambiente y GPS =================
+const ultimaPosicion = () => { for (let i = historial.length - 1; i >= 0; i--) if (historial[i].lat !== null && historial[i].lat !== undefined) return historial[i]; return null; };
+function haceCuanto(t) {
+  const s = Math.round((Date.now() - t) / 1000);
+  return s < 60 ? `${s} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${fmt(s / 3600, 1)} h`;
+}
+
+function pintarAmbiente() {
+  const p = historial[historial.length - 1];
+  $('a-temp').textContent = fmt(p?.temp, 0);
+  $('a-hum').textContent = fmt(p?.hum, 0);
+  $('a-gas').textContent = fmt(p?.gas_mv, 0);
+  // Cambio del MQ-2 respecto al promedio de las primeras lecturas de la sesión
+  const gases = historial.filter((x) => x.gas_mv !== null && x.gas_mv !== undefined).map((x) => x.gas_mv);
+  const base = gases.length >= 6 ? gases.slice(0, 6).reduce((a, b) => a + b, 0) / 6 : null;
+  $('a-gas-sub').textContent = base && p?.gas_mv !== null && p?.gas_mv !== undefined
+    ? `mV · ${p.gas_mv >= base ? '+' : ''}${fmt(((p.gas_mv - base) / base) * 100, 0)} % vs primeras lecturas` : 'mV en la salida AO';
+  $('a-alt').textContent = fmt(p?.alt_gps, 0);
+  $('a-sats').textContent = fmt(p?.sats, 0);
+  $('a-hdop').textContent = p?.hdop !== null && p?.hdop !== undefined ? `HDOP ${fmt(p.hdop)} (menor = mejor)` : 'HDOP —';
+
+  const ult = ultimaPosicion();
+  const conFix = p && p.lat !== null && p.lat !== undefined;
+  $('a-pos').textContent = ult ? `${fmt(ult.lat, 5)}, ${fmt(ult.lon, 5)}` : 'Sin fix';
+  $('a-pos-sub').textContent = !ult ? 'esperando al GPS' : conFix ? 'posición actual' : `última posición, hace ${haceCuanto(ult.t)}`;
+  $('a-maps').textContent = ult ? 'Abrir en Google Maps ↗' : '';
+  $('a-maps').href = ult ? `https://www.google.com/maps?q=${ult.lat},${ult.lon}` : '#';
+  pintarMapa();
+}
+
+// Mapa con Leaflet (si no hay internet, solo se muestran las coordenadas)
+let mapa = null, trazo = null, marcador = null, mapaCentrado = false;
+function pintarMapa() {
+  const puntos = historial.filter((x) => x.lat !== null && x.lat !== undefined).map((x) => [x.lat, x.lon]);
+  if (mapa && !puntos.length) { trazo.setLatLngs([]); mapaCentrado = false; return; }
+  if (!puntos.length || typeof L === 'undefined') {
+    if (typeof L === 'undefined') $('mapa-vacio').textContent = 'No se pudo cargar el mapa (¿sin internet?). Las coordenadas siguen apareciendo arriba y en la bitácora.';
+    return;
+  }
+  if (!mapa) {
+    $('mapa-vacio').remove();
+    mapa = L.map('mapa', { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(mapa);
+    trazo = L.polyline([], { color: '#5ce1ff', weight: 3, opacity: 0.85 }).addTo(mapa);
+    marcador = L.circleMarker(puntos[0], { radius: 8, color: '#c8f560', weight: 3, fillColor: '#c8f560', fillOpacity: 0.6 }).addTo(mapa);
+  }
+  trazo.setLatLngs(puntos);
+  marcador.setLatLng(puntos[puntos.length - 1]);
+  if (!mapaCentrado) { mapa.setView(puntos[puntos.length - 1], 17); mapaCentrado = true; }
 }
 
 // Resalta la sección visible en la barra de navegación

@@ -186,7 +186,18 @@ void processLoRaRx() {
   if (msg.startsWith("B,") || msg.startsWith("G,")) {
     rxCount++;
     String seq = campo(msg, 1);
-    if (msg.startsWith("B,")) {
+    int comas = 0;
+    for (unsigned int i = 0; i < msg.length(); i++) comas += msg[i] == ',';
+    if (msg.startsWith("B,") && comas >= 19) {
+      // Paquete con DHT11, MQ-2 y GPS (20 campos)
+      String t = campo(msg, 12), h = campo(msg, 13), sats = campo(msg, 18);
+      bool fix = campo(msg, 15).length() > 0;
+      oledShow("SEQ:" + seq + "  RX:" + String(rxCount),
+               "R:" + campo(msg, 2) + " A:" + campo(msg, 3) + " C:" + campo(msg, 4),
+               "T:" + (t.length() ? t : String("--")) + "C H:" + (h.length() ? h : String("--")) +
+                 "% " + (fix ? "GPS ok " : "GPS -- ") + sats + "sat",
+               link);
+    } else if (msg.startsWith("B,")) {
       oledShow("SEQ:" + seq + "  RX:" + String(rxCount),
                "R:" + campo(msg, 2) + " A:" + campo(msg, 3) + " C:" + campo(msg, 4),
                "w:" + campo(msg, 5) + "," + campo(msg, 6) + "," + campo(msg, 7),

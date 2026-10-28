@@ -178,6 +178,7 @@ option { background: #0c1522; }
 .icono-orbe svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
 .icono-orbe.giro { background: radial-gradient(circle at 40% 35%, #e4ffb0, #8fc63a 60%, transparent 72%); box-shadow: 0 0 30px rgba(200, 245, 96, .4); }
 .icono-orbe.antena { background: radial-gradient(circle at 40% 35%, #a6f1ff, #2b8fe6 60%, transparent 72%); box-shadow: 0 0 30px rgba(92, 225, 255, .4); }
+.icono-orbe.gps { background: radial-gradient(circle at 40% 35%, #ffd9a6, #e0783a 60%, transparent 72%); box-shadow: 0 0 30px rgba(255, 159, 107, .4); }
 .icono-orbe.brujula-ic { background: radial-gradient(circle at 40% 35%, #e0c8ff, #8a5ad8 60%, transparent 72%); box-shadow: 0 0 30px rgba(179, 136, 255, .4); }
 
 .chip {
@@ -352,6 +353,20 @@ section + section { margin-top: 44px; }
 .cal-mini span.c1, .cal-mini span.c2 { color: var(--medio); }
 .cal-mini span.c3 { color: var(--bajo); }
 
+/* ---------- Ambiente y GPS ---------- */
+.ambiente-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
+.graficas.una-columna { grid-template-columns: 1fr; }
+.mapa-tarjeta { display: flex; flex-direction: column; min-height: 520px; }
+.mapa-tarjeta .cab-panel h3 { margin: 0; }
+.mapa-tarjeta a.fuente { color: var(--cian); text-decoration: none; }
+#mapa { flex: 1; min-height: 440px; border-radius: 14px; overflow: hidden; border: 1px solid var(--borde); background: #0a1420; position: relative; }
+.mapa-vacio { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 30px; text-align: center; color: var(--tenue); font-size: 13px; }
+.leaflet-container { font-family: Inter, system-ui, sans-serif; background: #0a1420; }
+.leaflet-tile-pane { filter: brightness(.75) saturate(.8) hue-rotate(185deg) invert(1) contrast(.9); }
+.leaflet-control-attribution { background: rgba(8, 16, 28, .75) !important; color: var(--tenue) !important; }
+.leaflet-control-attribution a { color: var(--cian) !important; }
+.leaflet-bar a { background: rgba(8, 16, 28, .85) !important; color: var(--texto) !important; border-color: var(--borde) !important; }
+
 /* ---------- Bitácora ---------- */
 .barra-bitacora { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 12px; }
 .barra-bitacora label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--tenue); }
@@ -394,6 +409,7 @@ section + section { margin-top: 44px; }
   .insights .insight { grid-row: 3; }
   #cal-barras { grid-template-columns: 1fr 1fr; }
   .bitacora-grid { grid-template-columns: 1fr; }
+  .ambiente-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .app { padding: 12px 16px 40px; }

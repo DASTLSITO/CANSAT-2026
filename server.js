@@ -23,7 +23,8 @@ const server = http.createServer((req, res) => {
       res.writeHead(404);
       return res.end('no encontrado');
     }
-    res.writeHead(200, { 'Content-Type': (TIPOS[path.extname(archivo)] || 'application/octet-stream') + '; charset=utf-8' });
+    // no-cache: el navegador revisa siempre si hay una versión nueva del dashboard
+    res.writeHead(200, { 'Content-Type': (TIPOS[path.extname(archivo)] || 'application/octet-stream') + '; charset=utf-8', 'Cache-Control': 'no-cache' });
     res.end(cont);
   });
 });
