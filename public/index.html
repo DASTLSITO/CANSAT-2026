@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>COSTA · Estación terrena</title>
+  <title>Pyro-SCOUT · Estación terrena</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -20,7 +20,7 @@
     <header class="barra">
       <a class="marca" href="#inicio">
         <span class="orbe-logo"><i></i></span>
-        <span class="marca-txt"><b>COSTA</b><small>Estación terrena</small></span>
+        <span class="marca-txt"><b>PYRO-SCOUT</b><small>Estación terrena</small></span>
       </a>
 
       <nav class="nav" id="nav">
@@ -84,13 +84,16 @@
 
       <!-- Centro: CanSat 3D con halo -->
       <div class="centro">
-        <div class="orbitas" aria-hidden="true"><i></i><i></i><i></i></div>
         <div class="hud">
           <span class="hud-fase" id="hud-fase">Sin telemetría</span>
           <b id="hud-w">—</b>
           <small>°/s · velocidad angular</small>
         </div>
-        <div class="escena3d grande"><div class="escala"><div class="cansat3d" id="cansat3d"></div></div><div class="sombra3d"></div></div>
+        <canvas id="ejes3d" title="Arrastra para girar la vista · doble clic para volver a la vista inicial"></canvas>
+        <div class="leyenda-3d">
+          <span><i class="eje-x"></i>X sensor</span><span><i class="eje-y"></i>Y sensor</span><span><i class="eje-z"></i>Z sensor</span>
+          <span><i class="eje-w"></i>ω giro</span><span><i class="eje-ref"></i>referencia</span>
+        </div>
         <p class="hud-actitud" id="hud-actitud">—</p>
         <button class="boton-halo" id="solicitar-2" type="button">Pedir lectura ahora</button>
       </div>
@@ -98,7 +101,7 @@
       <!-- Columna derecha: ficha + brújula -->
       <aside class="vidrio ficha">
         <div class="ficha-cab">
-          <div><small>Código</small><h2>COSTA-01</h2></div>
+          <div><small>Código</small><h2>PS-01</h2></div>
           <span class="punto-vivo" id="punto-vivo"></span>
         </div>
         <div class="ficha-grid">
@@ -109,6 +112,7 @@
           <div><small>Temperatura</small><b id="f-temp">—</b></div>
           <div><small>Humedad</small><b id="f-hum">—</b></div>
           <div><small>Gas MQ-2</small><b id="f-gas">—</b></div>
+          <div><small>Índice UV</small><b id="f-uv">—</b></div>
           <div><small>Altitud GPS</small><b id="f-alt">—</b></div>
           <div><small>Señal LoRa</small><b id="f-rssi">—</b></div>
           <div><small>Paquete</small><b id="f-seq">—</b></div>
@@ -175,9 +179,19 @@
       </div>
 
       <div class="vidrio tarjeta calibracion-tarjeta">
-        <h3>Calibración del BNO055</h3>
-        <div id="cal-barras"></div>
-        <p class="nota">0 = sin calibrar, 3 = calibrado. Para calibrar el magnetómetro (necesario para un rumbo confiable), mueve el CanSat en forma de ocho.</p>
+        <div class="cab-panel"><h3>Calibración del BNO055 · guía paso a paso</h3><span class="fuente" id="cal-resumen"></span></div>
+        <div id="cal-pasos" class="cal-pasos"></div>
+        <details class="cal-detalles">
+          <summary>¿Cómo funciona la calibración y por qué a veces "no hace nada"?</summary>
+          <ul>
+            <li><b>Cada sensor tiene un número de 0 a 3.</b> 0 = sin calibrar, 3 = calibrado. El chip lo sube solo cuando reconoce el movimiento correcto; no hay que apretar nada.</li>
+            <li><b>Se pierde al apagar.</b> El BNO055 no guarda su calibración. El Nodo A ahora la <b>guarda en su memoria</b> la primera vez que llega a 3·3·3·3 y la <b>restaura al encender</b> (verás el evento "calibración completa guardada" en la bitácora). Aun restaurada, los números empiezan bajos y suben en segundos con un poco de movimiento.</li>
+            <li><b>El sistema (S) es el último.</b> Solo sube cuando giroscopio, acelerómetro y magnetómetro van bien. Si el magnetómetro está en 0, el sistema también.</li>
+            <li><b>El magnetómetro es el más delicado.</b> Laptops, mesas o patas metálicas, imanes, bocinas, cables USB, la batería LiPo y el propio cable de la antena desvían el campo magnético. Calíbralo con el CanSat en la mano, lejos (≥ 50 cm) de todo eso. Si cerca de algo metálico baja a 0–1, es interferencia, no una falla.</li>
+            <li><b>El acelerómetro necesita posiciones distintas, quietas.</b> Moverlo sin parar no sirve: hay que detenerse 2–3 s en cada cara.</li>
+            <li><b>Borrar una calibración mala:</b> mantén presionado el botón del Nodo A 3 segundos.</li>
+          </ul>
+        </details>
       </div>
 
       <div class="graficas">
@@ -190,11 +204,12 @@
 
     <!-- ================= Ambiente y GPS ================= -->
     <section id="ambiente">
-      <h2 class="titulo-seccion">Ambiente y GPS <span class="tenue">· DHT11, MQ-2 y NEO-6M</span></h2>
+      <h2 class="titulo-seccion">Ambiente y GPS <span class="tenue">· DHT11, MQ-2, UVM30A y NEO-6M</span></h2>
       <div class="kpis">
         <div class="vidrio kpi"><span>Temperatura</span><b id="a-temp">—</b><small>°C · DHT11</small></div>
         <div class="vidrio kpi"><span>Humedad</span><b id="a-hum">—</b><small>% · DHT11</small></div>
         <div class="vidrio kpi"><span>Gas MQ-2</span><b id="a-gas">—</b><small id="a-gas-sub">mV en la salida AO</small></div>
+        <div class="vidrio kpi"><span>Índice UV</span><b id="a-uv">—</b><small id="a-uv-sub">UVM30A</small></div>
         <div class="vidrio kpi"><span>Altitud GPS</span><b id="a-alt">—</b><small>m s. n. m.</small></div>
         <div class="vidrio kpi"><span>Satélites</span><b id="a-sats">—</b><small id="a-hdop">HDOP —</small></div>
         <div class="vidrio kpi"><span>Posición</span><b id="a-pos" class="txt">—</b><small id="a-pos-sub"></small></div>
@@ -208,9 +223,10 @@
         <div class="graficas una-columna">
           <div class="vidrio tarjeta"><h3>Temperatura y humedad</h3><canvas id="g-amb"></canvas></div>
           <div class="vidrio tarjeta"><h3>Gas MQ-2 y altitud GPS</h3><canvas id="g-gas"></canvas></div>
+          <div class="vidrio tarjeta"><h3>Radiación UV</h3><canvas id="g-uv"></canvas></div>
         </div>
       </div>
-      <p class="nota">El MQ-2 necesita ~2 minutos de calentamiento al encenderse (y 24–48 h la primera vez) antes de dar lecturas estables. Sus valores son relativos: sirven para ver cambios, no son ppm calibradas.</p>
+      <p class="nota">El MQ-2 necesita ~2 minutos de calentamiento al encenderse (y 24–48 h la primera vez) antes de dar lecturas estables. Sus valores son relativos: sirven para ver cambios, no son ppm calibradas. El índice UV del UVM30A es el de la dirección hacia donde apunta el sensor: solo es comparable con el índice UV oficial cuando mira hacia el cielo.</p>
     </section>
 
     <!-- ================= Bitácora ================= -->
@@ -231,10 +247,10 @@
                 <tr>
                   <th>Fecha y hora</th><th>#</th><th>Rumbo</th><th>Alabeo</th><th>Cabeceo</th>
                   <th>ωx</th><th>ωy</th><th>ωz</th><th>|ω|</th><th>|a|</th><th>Cal</th>
-                  <th>Temp</th><th>Hum</th><th>Gas mV</th><th>Latitud</th><th>Longitud</th><th>Alt</th><th>Sat</th><th>RSSI</th><th>SNR</th><th></th>
+                  <th>Temp</th><th>Hum</th><th>Gas mV</th><th>UV</th><th>Latitud</th><th>Longitud</th><th>Alt</th><th>Sat</th><th>RSSI</th><th>SNR</th><th></th>
                 </tr>
               </thead>
-              <tbody id="b-filas"><tr><td colspan="21" class="vacio">Sin lecturas</td></tr></tbody>
+              <tbody id="b-filas"><tr><td colspan="22" class="vacio">Sin lecturas</td></tr></tbody>
             </table>
           </div>
           <div class="paginacion">

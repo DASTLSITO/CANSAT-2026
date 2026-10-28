@@ -1,7 +1,8 @@
 // ============================================================
-//  COSTA · Nodo B (TTGO LoRa32) — estación terrena, conectado por USB a la PC
+//  Pyro-SCOUT · Nodo B (TTGO LoRa32) — estación terrena, conectado por USB a la PC
 //  Recibe los paquetes LoRa del Nodo A y los reenvía por el puerto serial
-//  para la API de Python (api/costa_api.py).
+//  para la API de Python (api/pyroscout_api.py). A cada paquete de datos le
+//  responde "ACK,<seq>" para que el LED del Nodo A parpadee.
 //
 //  Salida serial (115200 baudios), una línea por evento:
 //    RX,<rssi>,<snr>,<payload>     paquete LoRa recibido (ej. RX,-97,6.5,B,42,187.3,...)
@@ -43,9 +44,23 @@
 #define BTN_PIN      13
 #define LED_CONFIRM  2
 
+// ===== Perfil de radio (EL MISMO número en el Nodo A y en el Nodo B) =====
+//   1 = RÁPIDO (SF7, un paquete por segundo)   2 = EQUILIBRADO (SF9)   3 = ALCANCE (SF12)
+#define PERFIL_RADIO  1
+
+#if PERFIL_RADIO == 1
+  #define LORA_SF 7
+  #define LORA_CR 5
+#elif PERFIL_RADIO == 2
+  #define LORA_SF 9
+  #define LORA_CR 5
+#else
+  #define LORA_SF 12
+  #define LORA_CR 8
+#endif
+
 // ===== Parámetros LoRa (IGUALES en A y B) =====
 #define TX_POWER_DBM   17
-#define LORA_SF        12
 #define LORA_BW        125E3
 #define LORA_SYNCWORD  0x12
 #define LORA_PREAMBLE  8
@@ -58,10 +73,6 @@ uint32_t rxCount = 0;
 bool lastStable = HIGH, lastRead = HIGH;
 unsigned long lastChangeMs = 0;
 const unsigned long debounceMs = 40;
-
-// Confirmación diferida para que A encienda su LED
-bool confirmPending = false;
-unsigned long confirmDue = 0;
 
 // Comando recibido por USB
 String serialCmd = "";
@@ -111,10 +122,10 @@ void setup() {
   digitalWrite(OLED_RST, HIGH);
   delay(20);
   Wire.begin(OLED_SDA, OLED_SCL);
-  Wire.setClock(100000);
+  Wire.setClock(400000);        // la pantalla es lo único en este bus: 400 kHz la refresca 4x más rápido
   display.init();
   display.flipScreenVertically();
-  oledShow("Nodo B listo", "Esperando datos...", "", "");
+  oledShow("Pyro-SCOUT Nodo B", "Esperando datos...", "SF" + String(LORA_SF), "");
 
   // ---- LoRa ----
   SPI.begin(SCK, MISO, MOSI);
@@ -129,9 +140,9 @@ void setup() {
   LoRa.setSignalBandwidth(LORA_BW);
   LoRa.setPreambleLength(LORA_PREAMBLE);
   LoRa.setSyncWord(LORA_SYNCWORD);
-  LoRa.setCodingRate4(8);
+  LoRa.setCodingRate4(LORA_CR);
   LoRa.enableCrc();
-  Serial.println("# Nodo B listo");
+  Serial.println("# Nodo B listo, perfil " + String(PERFIL_RADIO) + " (SF" + String(LORA_SF) + ")");
 }
 
 void processButtonB() {
@@ -186,10 +197,11 @@ void processLoRaRx() {
   if (msg.startsWith("B,") || msg.startsWith("G,")) {
     rxCount++;
     String seq = campo(msg, 1);
+    sendLoRa("ACK," + seq);      // primero el ACK: el Nodo A ya está escuchando
     int comas = 0;
     for (unsigned int i = 0; i < msg.length(); i++) comas += msg[i] == ',';
     if (msg.startsWith("B,") && comas >= 19) {
-      // Paquete con DHT11, MQ-2 y GPS (20 campos)
+      // Paquete con DHT11, MQ-2 y GPS (20 o 24 campos)
       String t = campo(msg, 12), h = campo(msg, 13), sats = campo(msg, 18);
       bool fix = campo(msg, 15).length() > 0;
       oledShow("SEQ:" + seq + "  RX:" + String(rxCount),
@@ -207,9 +219,6 @@ void processLoRaRx() {
                "w:" + campo(msg, 4) + "," + campo(msg, 5) + "," + campo(msg, 6),
                "(formato G antiguo)", link);
     }
-    sendLoRa("ACK," + seq);
-    confirmPending = true;
-    confirmDue = millis() + 1500;
   } else {
     oledShow("RX:", msg, link, "");
   }
@@ -219,8 +228,4 @@ void loop() {
   processButtonB();
   processSerialCmd();
   processLoRaRx();
-  if (confirmPending && (int32_t)(millis() - confirmDue) >= 0) {
-    sendLoRa("CONFIRM_B");
-    confirmPending = false;
-  }
 }

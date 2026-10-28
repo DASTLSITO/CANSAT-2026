@@ -1,7 +1,7 @@
-// Estación terrena COSTA — servidor del dashboard (solo Node.js >= 18, sin dependencias)
+// Estación terrena Pyro-SCOUT — servidor del dashboard (solo Node.js >= 18, sin dependencias)
 //
-// Sirve los archivos de public/. La telemetría del BNO055 la entrega la API de Python
-// (api/costa_api.py, puerto 8000), que lee el Nodo B por USB; el navegador se conecta directo a ella.
+// Sirve los archivos de public/. La telemetría la entrega la API de Python
+// (api/pyroscout_api.py, puerto 8000), que lee el Nodo B por USB; el navegador se conecta directo a ella.
 
 const http = require('http');
 const fs = require('fs');
@@ -39,7 +39,7 @@ server.on('error', (err) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  COSTA · Estación terrena`);
+  console.log(`\n  Pyro-SCOUT · Estación terrena`);
   console.log(`  Dashboard:   http://localhost:${PORT}`);
-  console.log(`  Telemetría:  API de Python en :8000 (python api/costa_api.py)\n`);
+  console.log(`  Telemetría:  API de Python en :8000 (python api/pyroscout_api.py)\n`);
 });

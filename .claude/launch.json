@@ -1,7 +1,7 @@
 {
   "version": "0.0.1",
   "configurations": [
-    { "name": "costa", "runtimeExecutable": "node", "runtimeArgs": ["server.js"], "port": 3000 },
-    { "name": "costa-api", "runtimeExecutable": "api/.venv/bin/python", "runtimeArgs": ["api/costa_api.py"], "port": 8000 }
+    { "name": "pyroscout", "runtimeExecutable": "node", "runtimeArgs": ["server.js"], "port": 3000 },
+    { "name": "pyroscout-api", "runtimeExecutable": "api/.venv/bin/python", "runtimeArgs": ["api/pyroscout_api.py"], "port": 8000 }
   ]
 }

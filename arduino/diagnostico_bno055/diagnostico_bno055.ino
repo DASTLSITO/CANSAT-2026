@@ -1,5 +1,5 @@
 // ============================================================
-//  COSTA · Diagnóstico del BNO055 (cargar en el Nodo A, Heltec V2)
+//  Pyro-SCOUT · Diagnóstico del BNO055 (cargar en el Nodo A, Heltec V2)
 //  Solo para pruebas en mesa: imprime por el Monitor Serie (115200)
 //  el autotest de cada sensor, el modo, la calibración y los datos.
 //

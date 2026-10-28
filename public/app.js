@@ -1,8 +1,7 @@
 // ================= Estado =================
 // API de Python que lee el Nodo B por USB. Se puede cambiar con ?api=http://otra-ip:8000
 const API = new URLSearchParams(location.search).get('api') || `${location.protocol}//${location.hostname}:8000`;
-const INTERVALO_NODO_A = 10;   // s entre paquetes (SEND_INTERVAL_MS del Nodo A)
-const MAX_PUNTOS = 360;        // puntos visibles en las gráficas (1 h a 10 s por paquete)
+const MAX_PUNTOS = 600;        // puntos visibles en las gráficas (10 min a 1 paquete por segundo)
 
 let historial = [];            // lecturas de la sesión actual (de la bitácora)
 let receptor = null;           // estado que reporta la API (puerto, sesión, conteos)
@@ -18,7 +17,7 @@ const C = {
   x: '#ff7a8a', y: '#7be38f', z: '#6ea8ff', mag: '#e8f1fb',
   rumbo: '#c8f560', alabeo: '#ff9f6b', cabeceo: '#b388ff',
   rssi: '#5ce1ff', snr: '#c8f560',
-  temp: '#ff9f6b', hum: '#6ea8ff', gas: '#d16bff', alt: '#5ce1ff',
+  temp: '#ff9f6b', hum: '#6ea8ff', gas: '#d16bff', alt: '#5ce1ff', uv: '#ffd84a',
   texto: '#8a9bb2', borde: 'rgba(140, 200, 255, 0.08)',
 };
 Chart.defaults.color = C.texto;
@@ -90,6 +89,18 @@ const gGas = new Chart($('g-gas'), {
   options: { scales: { y: { min: 0, title: { display: true, text: 'mV' } }, y2: ejeDer('m') } },
 });
 
+const gUV = new Chart($('g-uv'), {
+  type: 'line',
+  data: { labels: [], datasets: [serie('Índice UV', C.uv, { fill: true, backgroundColor: 'rgba(255, 216, 74, 0.12)', spanGaps: true })] },
+  options: { scales: { y: { min: 0, suggestedMax: 11, title: { display: true, text: 'índice UV' } } } },
+});
+
+// Categorías de la OMS para el índice UV
+function categoriaUV(uv) {
+  if (uv === null || uv === undefined) return '';
+  return uv < 3 ? 'Bajo' : uv < 6 ? 'Moderado' : uv < 8 ? 'Alto' : uv < 11 ? 'Muy alto' : 'Extremo';
+}
+
 // ================= Telemetría del BNO055 =================
 const horaCorta = (t) => new Date(t).toLocaleTimeString('es-MX', { hour12: false });
 const fechaHora = (t) => new Date(t).toLocaleString('es-MX', { hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -128,36 +139,23 @@ function redibujarTelemetria() {
   const v = historial.slice(-MAX_PUNTOS);
   const etiquetas = v.map((p) => horaCorta(p.t));
   const col = (k) => v.map((p) => p[k] ?? null);
-  for (const g of [gOri, gGiro, gAcel, gEnlace, gAmb, gGas]) g.data.labels = etiquetas;
+  for (const g of [gOri, gGiro, gAcel, gEnlace, gAmb, gGas, gUV]) g.data.labels = etiquetas;
   [gOri.data.datasets[0].data, gOri.data.datasets[1].data, gOri.data.datasets[2].data] = [col('alabeo'), col('cabeceo'), col('rumbo')];
   [gGiro.data.datasets[0].data, gGiro.data.datasets[1].data, gGiro.data.datasets[2].data, gGiro.data.datasets[3].data] = [col('wx'), col('wy'), col('wz'), col('w_mag')];
   [gAcel.data.datasets[0].data, gAcel.data.datasets[1].data, gAcel.data.datasets[2].data, gAcel.data.datasets[3].data] = [col('ax'), col('ay'), col('az'), col('a_mag')];
   [gEnlace.data.datasets[0].data, gEnlace.data.datasets[1].data] = [col('rssi'), col('snr')];
   [gAmb.data.datasets[0].data, gAmb.data.datasets[1].data] = [col('temp'), col('hum')];
   [gGas.data.datasets[0].data, gGas.data.datasets[1].data] = [col('gas_mv'), col('alt_gps')];
-  [gOri, gGiro, gAcel, gEnlace, gAmb, gGas].forEach((g) => g.update('none'));
+  gUV.data.datasets[0].data = col('uv');
+  [gOri, gGiro, gAcel, gEnlace, gAmb, gGas, gUV].forEach((g) => g.update('none'));
   pintarKPIs();
   pintarAmbiente();
   pintarActitud(historial[historial.length - 1]);
   pintarHalo();
 }
 
-// ---------- Actitud: CanSat 3D, brújula, horizonte y calibración ----------
+// ---------- Actitud: vista 3D, brújula, horizonte y calibración ----------
 (function construirInstrumentos() {
-  // Lata de 12 caras hecha con transformaciones CSS 3D
-  const lata = $('cansat3d');
-  const N = 12, R = 56, alto = 180;
-  const lado = 2 * R * Math.sin(Math.PI / N), apotema = R * Math.cos(Math.PI / N);
-  let html = '';
-  for (let i = 0; i < N; i++) {
-    const frente = i === 0 ? ' frente' : '';
-    html += `<div class="cara${frente}" style="width:${lado + 0.6}px;height:${alto}px;margin-left:${-lado / 2}px;margin-top:${-alto / 2}px;transform:rotateY(${(360 / N) * i}deg) translateZ(${apotema}px)">${i === 0 ? '<span>▲</span>' : ''}</div>`;
-  }
-  html += `<div class="tapa" style="width:${2 * R}px;height:${2 * R}px;margin:${-R}px 0 0 ${-R}px;transform:rotateX(90deg) translateZ(${alto / 2}px)"><span>COSTA</span></div>`;
-  html += `<div class="tapa abajo" style="width:${2 * R}px;height:${2 * R}px;margin:${-R}px 0 0 ${-R}px;transform:rotateX(-90deg) translateZ(${alto / 2}px)"></div>`;
-  html += `<div class="eje" style="height:${alto + 70}px;margin-top:${-(alto + 70) / 2}px"></div>`;
-  lata.innerHTML = html;
-
   // Marcas de la brújula cada 10°
   let marcas = '';
   for (let g = 0; g < 360; g += 10) {
@@ -180,8 +178,7 @@ function redibujarTelemetria() {
 function pintarActitud(p) {
   const rumbo = p?.rumbo ?? 0, alabeo = p?.alabeo ?? 0, cabeceo = p?.cabeceo ?? 0;
   const conOri = p && p.rumbo !== null && p.rumbo !== undefined;
-  $('cansat3d').style.transform = `rotateX(-14deg) rotateY(${-rumbo}deg) rotateX(${cabeceo}deg) rotateZ(${alabeo}deg)`;
-  $('cansat3d').classList.toggle('sin-datos', !conOri);
+  ejes3d.objetivo(p);
   $('aguja').setAttribute('transform', `rotate(${rumbo} 100 100)`);
   $('brujula-valor').textContent = conOri ? `Rumbo ${fmt(rumbo)}° ${cardinal(rumbo)}` : 'Rumbo —';
   $('horizonte').setAttribute('transform', `rotate(${-alabeo} 100 100) translate(0 ${clamp(cabeceo, -45, 45) * 2})`);
@@ -189,15 +186,221 @@ function pintarActitud(p) {
   $('h-cabeceo').textContent = conOri ? `${fmt(cabeceo)}°` : '—';
   $('hud-actitud').textContent = conOri ? `rumbo ${fmt(rumbo, 0)}° · alabeo ${fmt(alabeo)}° · cabeceo ${fmt(cabeceo)}°` : 'Esperando orientación del BNO055';
 
-  const nombres = [['Sistema', 'cal_sys'], ['Giroscopio', 'cal_giro'], ['Acelerómetro', 'cal_acel'], ['Magnetómetro', 'cal_mag']];
-  $('cal-barras').innerHTML = nombres.map(([n, k]) => {
-    const v = p?.[k];
-    const seg = [1, 2, 3].map((i) => `<i class="${v !== null && v !== undefined && v >= i ? 'on c' + v : ''}"></i>`).join('');
-    return `<div class="cal-fila"><span>${n}</span><span class="segmentos">${seg}</span><b>${v ?? '—'}</b></div>`;
+  pintarGuiaCalibracion(p);
+}
+
+// Guía de calibración: qué hacer con cada sensor y cómo va
+const PASOS_CAL = [
+  { k: 'cal_giro', n: 'Giroscopio', tiempo: '2–5 s', paso: 'Deja el CanSat completamente quieto sobre la mesa.' },
+  { k: 'cal_acel', n: 'Acelerómetro', tiempo: '30–60 s', paso: 'Ponlo quieto 2–3 s en 6 posiciones: boca arriba, boca abajo y sobre cada uno de sus 4 lados (como las caras de un dado). Muévelo despacio entre una y otra.' },
+  { k: 'cal_mag', n: 'Magnetómetro', tiempo: '10–30 s', paso: 'En la mano, lejos (≥ 50 cm) de laptop, metal, imanes, cables y la batería: dibuja ochos grandes en el aire girándolo en todos los sentidos.' },
+  { k: 'cal_sys', n: 'Sistema', tiempo: 'automático', paso: 'Sube solo cuando los otros tres están bien. Si se queda abajo, repite el magnetómetro en otro lugar.' },
+];
+// Segundos que lleva el sensor en su valor actual (según las lecturas recibidas)
+function segundosEnValor(k) {
+  const n = historial.length;
+  if (!n || historial[n - 1][k] === null || historial[n - 1][k] === undefined) return null;
+  let i = n - 1;
+  while (i > 0 && historial[i - 1][k] === historial[n - 1][k]) i--;
+  return Math.round((historial[n - 1].t - historial[i].t) / 1000);
+}
+function pintarGuiaCalibracion(p) {
+  const valores = PASOS_CAL.map((x) => p?.[x.k]);
+  const hay = valores.every((v) => v !== null && v !== undefined);
+  const siguiente = hay ? PASOS_CAL.findIndex((x) => p[x.k] < 3) : -1;
+  $('cal-resumen').textContent = !hay ? (p ? 'el firmware no envía calibración' : 'esperando datos')
+    : siguiente === -1 ? '✓ todo calibrado (el Nodo A la guarda en memoria)' : `S·G·A·M = ${p.cal_sys}·${p.cal_giro}·${p.cal_acel}·${p.cal_mag}`;
+  $('cal-pasos').innerHTML = PASOS_CAL.map((x, i) => {
+    const v = p?.[x.k];
+    const conV = v !== null && v !== undefined;
+    const estado = !conV ? '' : v === 3 ? 'hecho' : i === siguiente ? 'actual' : '';
+    const seg = [1, 2, 3].map((j) => `<i class="${conV && v >= j ? 'on c' + v : ''}"></i>`).join('');
+    const t = segundosEnValor(x.k);
+    const nota = !conV ? '' : v === 3 ? `listo · en 3 desde hace ${t ?? 0} s` : `nivel ${v} desde hace ${t ?? 0} s`;
+    return `<div class="cal-paso ${estado}">
+      <div class="cal-num">${v === 3 ? '✓' : i + 1}</div>
+      <div class="cal-texto"><b>${x.n}</b> <small class="tenue">· ${x.tiempo}</small>
+        <p>${x.paso}</p></div>
+      <div class="cal-estado"><span class="segmentos">${seg}</span><b>${conV ? v : '—'}</b><small>${nota}</small></div>
+    </div>`;
   }).join('');
 }
 
+// ---------- Vista 3D: esfera con los ejes X/Y/Z del sensor ----------
+// Usa el cuaternión del BNO055 (o los ángulos de Euler si el firmware no lo manda).
+// Ejes de referencia fijos + esfera y ejes del sensor que giran con él + vector ω.
+const ejes3d = (() => {
+  const cv = $('ejes3d');
+  const ctx = cv.getContext('2d');
+  const VISTA = { az: 0.65, el: 0.35 };
+  let az = VISTA.az, el = VISTA.el;
+  let qAct = [1, 0, 0, 0], qObj = [1, 0, 0, 0], omega = [0, 0, 0], conDatos = false;
+  const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Arrastrar para girar la vista; doble clic para volver a la inicial
+  let arrastre = null;
+  cv.addEventListener('pointerdown', (e) => { arrastre = { x: e.clientX, y: e.clientY, az, el }; cv.setPointerCapture(e.pointerId); });
+  cv.addEventListener('pointermove', (e) => {
+    if (!arrastre) return;
+    az = arrastre.az + (e.clientX - arrastre.x) * 0.01;
+    el = clamp(arrastre.el + (e.clientY - arrastre.y) * 0.01, -1.45, 1.45);
+  });
+  cv.addEventListener('pointerup', () => (arrastre = null));
+  cv.addEventListener('dblclick', () => { az = VISTA.az; el = VISTA.el; });
+
+  const RAD = Math.PI / 180;
+  const qNorm = (q) => { const n = Math.hypot(...q) || 1; return q.map((c) => c / n); };
+  const qMul = ([a0, a1, a2, a3], [b0, b1, b2, b3]) => [
+    a0 * b0 - a1 * b1 - a2 * b2 - a3 * b3, a0 * b1 + a1 * b0 + a2 * b3 - a3 * b2,
+    a0 * b2 - a1 * b3 + a2 * b0 + a3 * b1, a0 * b3 + a1 * b2 - a2 * b1 + a3 * b0,
+  ];
+  const qEje = ([x, y, z], ang) => [Math.cos(ang / 2), x * Math.sin(ang / 2), y * Math.sin(ang / 2), z * Math.sin(ang / 2)];
+  function slerp(a, b, t) {
+    let d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+    if (d < 0) { b = b.map((c) => -c); d = -d; }
+    if (d > 0.9995) return qNorm(a.map((c, i) => c + (b[i] - c) * t));
+    const th = Math.acos(d), s = Math.sin(th);
+    return a.map((c, i) => (Math.sin((1 - t) * th) * c + Math.sin(t * th) * b[i]) / s);
+  }
+  // Rota un vector del marco del sensor al marco de referencia
+  function rotar([w, x, y, z], [vx, vy, vz]) {
+    return [
+      (1 - 2 * (y * y + z * z)) * vx + 2 * (x * y - w * z) * vy + 2 * (x * z + w * y) * vz,
+      2 * (x * y + w * z) * vx + (1 - 2 * (x * x + z * z)) * vy + 2 * (y * z - w * x) * vz,
+      2 * (x * z - w * y) * vx + 2 * (y * z + w * x) * vy + (1 - 2 * (x * x + y * y)) * vz,
+    ];
+  }
+
+  function objetivo(p) {
+    if (!p) { conDatos = false; return; }
+    if (p.qw !== null && p.qw !== undefined) {
+      qObj = qNorm([p.qw, p.qx, p.qy, p.qz]);
+      conDatos = true;
+    } else if (p.rumbo !== null && p.rumbo !== undefined) {
+      // Sin cuaternión: rumbo sobre Z, cabeceo sobre X, alabeo sobre Y (convención del BNO055)
+      qObj = qNorm(qMul(qMul(qEje([0, 0, 1], -p.rumbo * RAD), qEje([1, 0, 0], p.cabeceo * RAD)), qEje([0, 1, 0], p.alabeo * RAD)));
+      conDatos = true;
+    } else {
+      conDatos = false;
+    }
+    omega = [p.wx ?? 0, p.wy ?? 0, p.wz ?? 0];
+    if (quieto) qAct = qObj;
+  }
+
+  function dibujar() {
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    const W = cv.clientWidth * dpr, H = cv.clientHeight * dpr;
+    if (!W || !H) return;
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    ctx.clearRect(0, 0, W, H);
+    const S = Math.min(W, H) * 0.27;
+    const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+    const proy = ([x, y, z]) => {
+      const x1 = x * ca - y * sa, y1 = x * sa + y * ca;
+      const arriba = y1 * se + z * ce, prof = y1 * ce - z * se;
+      const f = 4 / (4 + prof);
+      return [W / 2 + x1 * S * f, H / 2 - arriba * S * f, prof];
+    };
+    const linea = (a, b, color, ancho, guiones) => {
+      const [x1, y1] = proy(a), [x2, y2] = proy(b);
+      ctx.beginPath(); ctx.setLineDash(guiones || []); ctx.strokeStyle = color; ctx.lineWidth = ancho * dpr;
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
+    };
+    const flecha = (fin, color, etiqueta, ancho = 3) => {
+      const [x0, y0] = proy([0, 0, 0]), [x1, y1, prof] = proy(fin);
+      const ang = Math.atan2(y1 - y0, x1 - x0), t = 11 * dpr;
+      ctx.save();
+      ctx.globalAlpha = prof > 0.6 ? 0.55 : 1;
+      ctx.shadowColor = color; ctx.shadowBlur = 10 * dpr;
+      ctx.strokeStyle = ctx.fillStyle = color; ctx.lineWidth = ancho * dpr;
+      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - t * Math.cos(ang - 0.4), y1 - t * Math.sin(ang - 0.4));
+      ctx.lineTo(x1 - t * Math.cos(ang + 0.4), y1 - t * Math.sin(ang + 0.4));
+      ctx.closePath(); ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.font = `600 ${13 * dpr}px "Space Grotesk", sans-serif`;
+      ctx.fillText(etiqueta, x1 + 8 * dpr * Math.cos(ang) - 4 * dpr, y1 + 8 * dpr * Math.sin(ang) + 4 * dpr);
+      ctx.restore();
+    };
+
+    // Halo detrás de la esfera
+    const [cx, cy] = proy([0, 0, 0]);
+    const halo = ctx.createRadialGradient(cx, cy, S * 0.6, cx, cy, S * 1.9);
+    halo.addColorStop(0, 'rgba(92, 200, 255, 0.22)');
+    halo.addColorStop(1, 'rgba(92, 200, 255, 0)');
+    ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
+
+    // Ejes de referencia (fijos)
+    const L = 1.75, ref = 'rgba(110, 168, 255, 0.55)';
+    [[1, 0, 0, 'X₀'], [0, 1, 0, 'Y₀'], [0, 0, 1, 'Z₀']].forEach(([x, y, z, n]) => {
+      linea([-x * L, -y * L, -z * L], [x * L, y * L, z * L], ref, 1.2, [6 * dpr, 5 * dpr]);
+      const [px, py] = proy([x * L * 1.06, y * L * 1.06, z * L * 1.06]);
+      ctx.fillStyle = ref; ctx.font = `500 ${12 * dpr}px Inter, sans-serif`; ctx.fillText(n, px + 3 * dpr, py + 4 * dpr);
+    });
+
+    // Esfera de alambre fija al sensor (gira con él)
+    const q = qAct;
+    const color = conDatos ? '150, 230, 255' : '140, 155, 175';
+    ctx.lineWidth = 1 * dpr;
+    const tramo = (pts) => {
+      for (let i = 1; i < pts.length; i++) {
+        const a = proy(rotar(q, pts[i - 1])), b = proy(rotar(q, pts[i]));
+        const prof = (a[2] + b[2]) / 2;
+        ctx.strokeStyle = `rgba(${color}, ${prof < 0 ? 0.6 : 0.16})`;
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+      }
+    };
+    for (let la = -60; la <= 60; la += 30) {
+      const pts = [];
+      for (let lo = 0; lo <= 360; lo += 10) pts.push([Math.cos(la * RAD) * Math.cos(lo * RAD), Math.cos(la * RAD) * Math.sin(lo * RAD), Math.sin(la * RAD)]);
+      tramo(pts);
+    }
+    for (let lo = 0; lo < 180; lo += 30) {
+      const pts = [];
+      for (let la = 0; la <= 360; la += 10) pts.push([Math.cos(la * RAD) * Math.cos(lo * RAD), Math.cos(la * RAD) * Math.sin(lo * RAD), Math.sin(la * RAD)]);
+      tramo(pts);
+    }
+
+    // Ejes del sensor (del más lejano al más cercano) y vector de velocidad angular
+    const ejes = [[[1, 0, 0], '#ff5c6c', 'X'], [[0, 1, 0], '#5be37a', 'Y'], [[0, 0, 1], '#4f8dff', 'Z']]
+      .map(([v, c, n]) => { const w = rotar(q, v.map((k) => k * 1.5)); return { w, c, n, prof: proy(w)[2] }; })
+      .sort((a, b) => b.prof - a.prof);
+    if (conDatos) ejes.forEach((e) => flecha(e.w, e.c, e.n));
+    const wMag = Math.hypot(...omega);
+    if (conDatos && wMag > 2) {
+      const largo = clamp(wMag / 90, 0.25, 1.6);
+      const dir = rotar(q, omega.map((k) => (k / wMag) * largo));
+      flecha(dir, '#ffd84a', `ω ${fmt(wMag, 0)}°/s`, 2.5);
+    }
+    if (!conDatos) {
+      ctx.fillStyle = 'rgba(232, 241, 251, 0.7)'; ctx.font = `500 ${13 * dpr}px Inter, sans-serif`; ctx.textAlign = 'center';
+      ctx.fillText('Esperando orientación del BNO055', W / 2, H - 14 * dpr); ctx.textAlign = 'start';
+    }
+  }
+
+  function bucle() {
+    if (!document.hidden) {
+      qAct = slerp(qAct, qObj, 0.18);   // movimiento suave entre un paquete y el siguiente
+      dibujar();
+    }
+    requestAnimationFrame(bucle);
+  }
+  requestAnimationFrame(bucle);
+  return { objetivo };
+})();
+
 // ================= Conexión con la API =================
+// Intervalo típico entre paquetes (mediana de los últimos), para saber si la señal sigue viva
+function intervaloEstimado() {
+  const n = historial.length;
+  if (n < 3) return 10;
+  const d = [];
+  for (let i = Math.max(1, n - 20); i < n; i++) d.push((historial[i].t - historial[i - 1].t) / 1000);
+  d.sort((a, b) => a - b);
+  return d[Math.floor(d.length / 2)];
+}
+
 function estadoConexion() {
   const ult = historial[historial.length - 1];
   const pill = $('conexion');
@@ -209,7 +412,7 @@ function estadoConexion() {
 
   if (!apiEnLinea) { pill.className = 'pastilla alerta'; pill.textContent = 'API Python apagada'; pie.length = 0; pie.push(API); }
   else if (receptor && !receptor.conectado) { pill.className = 'pastilla alerta'; pill.textContent = 'Nodo B desconectado'; pie.unshift(receptor.error || ''); }
-  else if (ult && seg < INTERVALO_NODO_A * 2.5) { pill.className = 'pastilla on'; pill.textContent = 'En vivo'; }
+  else if (ult && seg < Math.max(3, intervaloEstimado() * 3)) { pill.className = 'pastilla on'; pill.textContent = 'En vivo'; }
   else { pill.className = 'pastilla off'; pill.textContent = ult ? 'Sin señal LoRa' : 'Esperando datos'; }
   $('ultimo').textContent = pie.filter(Boolean).join(' · ');
   $('punto-vivo').className = 'punto-vivo' + (pill.classList.contains('on') ? ' on' : '');
@@ -306,14 +509,14 @@ function pintarTabla(filas) {
   $('b-sig').disabled = bPagina >= paginas;
   const s = sesiones.find((x) => x.id === bSesion);
   $('b-resumen').textContent = s ? `${bTotal} lecturas · ${s.perdidos} perdidas · desde ${fechaHora(s.inicio)}` : '';
-  if (!filas.length) { $('b-filas').innerHTML = '<tr><td colspan="21" class="vacio">Sin lecturas en esta sesión</td></tr>'; return; }
+  if (!filas.length) { $('b-filas').innerHTML = '<tr><td colspan="22" class="vacio">Sin lecturas en esta sesión</td></tr>'; return; }
   $('b-filas').innerHTML = filas.map((f) => `
     <tr>
       <td>${fechaHora(f.t)}</td><td>${f.seq ?? '—'}</td>
       <td>${fmt(f.rumbo)}</td><td>${fmt(f.alabeo)}</td><td>${fmt(f.cabeceo)}</td>
       <td>${fmt(f.wx)}</td><td>${fmt(f.wy)}</td><td>${fmt(f.wz)}</td><td><b>${fmt(f.w_mag)}</b></td>
       <td>${fmt(f.a_mag, 2)}</td><td class="mono">${calTexto(f)}</td>
-      <td>${fmt(f.temp, 0)}</td><td>${fmt(f.hum, 0)}</td><td>${fmt(f.gas_mv, 0)}</td>
+      <td>${fmt(f.temp, 0)}</td><td>${fmt(f.hum, 0)}</td><td>${fmt(f.gas_mv, 0)}</td><td>${fmt(f.uv)}</td>
       <td>${fmt(f.lat, 5)}</td><td>${fmt(f.lon, 5)}</td><td>${fmt(f.alt_gps, 0)}</td><td>${fmt(f.sats, 0)}</td>
       <td>${fmt(f.rssi, 0)}</td><td>${fmt(f.snr)}</td>
       <td>${f.perdidos ? `<span class="etiqueta alerta" title="Paquetes que faltaron antes de este">−${f.perdidos}</span>` : ''}${f.formato === 'G' ? '<span class="etiqueta" title="Firmware antiguo">G</span>' : ''}</td>
@@ -362,6 +565,7 @@ function pintarHalo() {
   $('f-temp').textContent = conUnidad(p?.temp, '°C', 0);
   $('f-hum').textContent = conUnidad(p?.hum, '%', 0);
   $('f-gas').textContent = conUnidad(p?.gas_mv, 'mV', 0);
+  $('f-uv').textContent = p?.uv !== null && p?.uv !== undefined ? `${fmt(p.uv)} · ${categoriaUV(p.uv)}` : '—';
   $('f-alt').textContent = conUnidad(p?.alt_gps, 'm', 0);
   $('f-rssi').textContent = conUnidad(p?.rssi, 'dBm', 0);
   $('f-seq').textContent = p ? `#${p.seq}` : '—';
@@ -438,6 +642,8 @@ function pintarAmbiente() {
   const base = gases.length >= 6 ? gases.slice(0, 6).reduce((a, b) => a + b, 0) / 6 : null;
   $('a-gas-sub').textContent = base && p?.gas_mv !== null && p?.gas_mv !== undefined
     ? `mV · ${p.gas_mv >= base ? '+' : ''}${fmt(((p.gas_mv - base) / base) * 100, 0)} % vs primeras lecturas` : 'mV en la salida AO';
+  $('a-uv').textContent = fmt(p?.uv);
+  $('a-uv-sub').textContent = p?.uv !== null && p?.uv !== undefined ? `${categoriaUV(p.uv)} · ${p.uv_mv} mV` : 'UVM30A';
   $('a-alt').textContent = fmt(p?.alt_gps, 0);
   $('a-sats').textContent = fmt(p?.sats, 0);
   $('a-hdop').textContent = p?.hdop !== null && p?.hdop !== undefined ? `HDOP ${fmt(p.hdop)} (menor = mejor)` : 'HDOP —';

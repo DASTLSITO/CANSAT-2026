@@ -1,9 +1,9 @@
 """
-Bitácora SQLite de la misión COSTA.
+Bitácora SQLite de la misión Pyro-SCOUT.
 
 Tablas:
     sesiones  -> cada "misión" o prueba (se abre una nueva desde el dashboard)
-    lecturas  -> un renglón por paquete recibido por LoRa (BNO055, DHT11, MQ-2 y GPS)
+    lecturas  -> un renglón por paquete recibido por LoRa (BNO055, DHT11, MQ-2, UVM30A y GPS)
     eventos   -> conexiones del puerto, mensajes del Nodo B, paquetes perdidos o inválidos, etc.
 
 Los tiempos (columna t) son milisegundos Unix con la hora de la PC al recibir el paquete.
@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS lecturas (
     gas_mv    INTEGER,                                -- mV en la salida AO del MQ-2
     lat       REAL, lon REAL, alt_gps REAL,           -- grados decimales y m (GPS)
     sats      INTEGER, hdop REAL,                     -- satélites en uso y precisión horizontal
+    qw        REAL, qx REAL, qy REAL, qz REAL,        -- cuaternión de orientación (BNO055)
+    uv_mv     INTEGER, uv REAL,                       -- mV del UVM30A e índice UV calculado
     rssi      INTEGER,              -- dBm
     snr       REAL,                 -- dB
     perdidos  INTEGER NOT NULL DEFAULT 0,  -- paquetes que faltaron justo antes de este (huecos en seq)
@@ -56,7 +58,7 @@ CREATE INDEX IF NOT EXISTS ix_eventos_sesion_t ON eventos(sesion_id, t);
 COLUMNAS_LECTURA = [
     "t", "seq", "formato", "rumbo", "alabeo", "cabeceo", "wx", "wy", "wz", "w_mag",
     "ax", "ay", "az", "a_mag", "cal_sys", "cal_giro", "cal_acel", "cal_mag",
-    "temp", "hum", "gas_mv", "lat", "lon", "alt_gps", "sats", "hdop",
+    "temp", "hum", "gas_mv", "lat", "lon", "alt_gps", "sats", "hdop", "qw", "qx", "qy", "qz", "uv_mv", "uv",
     "rssi", "snr", "perdidos", "crudo",
 ]
 
@@ -84,7 +86,9 @@ class Bitacora:
     def _migrar(self):
         """Agrega a una bitácora vieja las columnas que se sumaron después (no borra nada)."""
         nuevas = {"temp": "REAL", "hum": "REAL", "gas_mv": "INTEGER", "lat": "REAL", "lon": "REAL",
-                  "alt_gps": "REAL", "sats": "INTEGER", "hdop": "REAL"}
+                  "alt_gps": "REAL", "sats": "INTEGER", "hdop": "REAL",
+                  "qw": "REAL", "qx": "REAL", "qy": "REAL", "qz": "REAL",
+                  "uv_mv": "INTEGER", "uv": "REAL"}
         existentes = {f["name"] for f in self._db.execute("PRAGMA table_info(lecturas)")}
         with self._db:
             for col, tipo in nuevas.items():

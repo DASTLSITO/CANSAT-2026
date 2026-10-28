@@ -1,8 +1,8 @@
 """
-COSTA · API de telemetría (Python)
+Pyro-SCOUT · API de telemetría (Python)
 
 Lee por USB el Nodo B (receptor LoRa), interpreta los paquetes del Nodo A
-(BNO055, DHT11, MQ-2 y GPS), los guarda en una bitácora SQLite (data/bitacora.db) y los entrega al dashboard.
+(BNO055, DHT11, MQ-2, UVM30A y GPS), los guarda en una bitácora SQLite (data/bitacora.db) y los entrega al dashboard.
 
     GET  /api/estado                 estado del puerto, sesión actual y conteos
     GET  /api/historial?n=500        últimas lecturas de la sesión actual (para gráficas)
@@ -16,13 +16,15 @@ Lee por USB el Nodo B (receptor LoRa), interpreta los paquetes del Nodo A
     GET  /api/bitacora/eventos       eventos de una sesión  ?sesion=&limite=
 
 Formato que imprime el Nodo B (una línea por paquete):
-    RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal,temp,hum,gas,lat,lon,alt,sats,hdop
+    RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal,temp,hum,gas,lat,lon,alt,sats,hdop,qw,qx,qy,qz,uv
+    RX,<rssi>,<snr>,B,...,hdop                                       (sin cuaternión: 20 campos)
+    RX,<rssi>,<snr>,INFO,<texto>                                     (aviso del Nodo A -> evento)
     RX,<rssi>,<snr>,B,seq,rumbo,alabeo,cabeceo,wx,wy,wz,ax,ay,az,cal   (firmware solo con BNO055)
     RX,<rssi>,<snr>,G,seq,t,h,wx,wy,wz,gas          (firmware anterior: solo se usa el giroscopio)
     # <mensaje>                                      (informativo, se guarda como evento)
 
 Uso:
-    python costa_api.py                      # lee el Nodo B en /dev/ttyACM0
+    python pyroscout_api.py                  # lee el Nodo B en /dev/ttyACM0
 """
 
 import argparse
@@ -106,12 +108,29 @@ def _opc(s: str, tipo=float, minimo=None, maximo=None):
     return v
 
 
+# UVM30A: mV de salida en el límite inferior de cada índice UV 0..11 (hoja de datos del sensor)
+TABLA_UVM30A = [50, 227, 318, 408, 503, 606, 696, 795, 881, 976, 1079, 1170]
+
+
+def indice_uv(mv: int | None) -> float | None:
+    """Convierte los mV del UVM30A a índice UV, interpolando entre los puntos de la tabla."""
+    if mv is None:
+        return None
+    t = TABLA_UVM30A
+    if mv < t[0]:
+        return 0.0
+    for i in range(1, len(t)):
+        if mv < t[i]:
+            return round((i - 1) + (mv - t[i - 1]) / (t[i] - t[i - 1]), 1)
+    return round(11 + (mv - t[-1]) / 91, 1)      # arriba de 11: misma pendiente que el último tramo
+
+
 def interpretar_payload(payload: str) -> dict:
     """Convierte 'B,...' o 'G,...' en un diccionario. Lanza ValueError si está mal formado.
 
-    B con 12 campos: solo BNO055.  B con 20 campos: BNO055 + DHT11 + MQ-2 + GPS."""
+    B con 12 campos: solo BNO055.  20: + DHT11, MQ-2 y GPS.  24: + cuaternión.  25: + UVM30A."""
     p = payload.strip().split(",")
-    if p[0] == "B" and len(p) in (12, 20):
+    if p[0] == "B" and len(p) in (12, 20, 24, 25):
         cal = p[11].strip()
         if len(cal) != 4 or not cal.isdigit():
             raise ValueError("calibración inválida")
@@ -122,7 +141,7 @@ def interpretar_payload(payload: str) -> dict:
             "ax": _num(p[8]), "ay": _num(p[9]), "az": _num(p[10]),
             "cal_sys": int(cal[0]), "cal_giro": int(cal[1]), "cal_acel": int(cal[2]), "cal_mag": int(cal[3]),
         }
-        if len(p) == 20:
+        if len(p) >= 20:
             d.update({
                 "temp": _opc(p[12], float, -40, 85), "hum": _opc(p[13], float, 0, 100),
                 "gas_mv": _opc(p[14], int, 0, 6000),
@@ -132,6 +151,17 @@ def interpretar_payload(payload: str) -> dict:
             })
             if (d["lat"] is None) != (d["lon"] is None):
                 raise ValueError("GPS con latitud o longitud incompleta")
+        if len(p) >= 24:
+            q = [_num(x) for x in p[20:24]]
+            norma = math.sqrt(sum(c * c for c in q))
+            if norma < 0.5:            # el BNO055 entrega todo en 0 cuando la fusión no corre
+                q = [None] * 4
+            else:
+                q = [round(c / norma, 4) for c in q]
+            d.update({"qw": q[0], "qx": q[1], "qy": q[2], "qz": q[3]})
+        if len(p) == 25:
+            d["uv_mv"] = _opc(p[24], int, 0, 3300)
+            d["uv"] = indice_uv(d["uv_mv"])
         return d
     if p[0] == "G" and len(p) == 8:
         # G,seq,t,h,wx,wy,wz,gas -> solo interesa el giroscopio del BNO055
@@ -190,6 +220,8 @@ def procesar_linea(linea: str):
     else:
         return registrar_evento("serial", linea[:200])
 
+    if payload.startswith("INFO,"):
+        return registrar_evento("nodo_a", payload[5:200])
     if not (payload.startswith("B,") or payload.startswith("G,")):
         return registrar_evento("mensaje_lora", payload[:200])
     try:
@@ -259,7 +291,7 @@ async def ciclo_de_vida(_app):
     yield
 
 
-app = FastAPI(title="COSTA · API de telemetría", lifespan=ciclo_de_vida)
+app = FastAPI(title="Pyro-SCOUT · API de telemetría", lifespan=ciclo_de_vida)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
@@ -343,7 +375,7 @@ def exportar_csv(sesion: int | None = None):
                 buf.truncate()
         yield buf.getvalue()
 
-    nombre = f"costa_bitacora_sesion_{sid}.csv"
+    nombre = f"pyroscout_bitacora_sesion_{sid}.csv"
     return StreamingResponse(filas(), media_type="text/csv; charset=utf-8",
                              headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
@@ -369,7 +401,7 @@ async def stream():
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="API de telemetría del CanSat COSTA")
+    ap = argparse.ArgumentParser(description="API de telemetría del CanSat Pyro-SCOUT")
     ap.add_argument("--baudios", type=int, default=115200)
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8000, help="Puerto HTTP de la API")
@@ -379,7 +411,7 @@ if __name__ == "__main__":
     ruta_db = ARGS.db or DATA_DIR / "bitacora.db"
     bitacora = Bitacora(ruta_db)
 
-    print(f"\n  COSTA · API de telemetría en http://localhost:{ARGS.port}  (docs: /docs)")
+    print(f"\n  Pyro-SCOUT · API de telemetría en http://localhost:{ARGS.port}  (docs: /docs)")
     print(f"  Bitácora: {ruta_db}  ·  sesión actual: {bitacora.sesion['nombre']}")
     print(flush=True)
     # timeout_graceful_shutdown: el stream en vivo del dashboard nunca se cierra solo; sin esto Ctrl+C se queda esperando
