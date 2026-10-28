@@ -1,0 +1,10 @@
+{
+  "name": "costa-estacion-terrena",
+  "version": "1.0.0",
+  "description": "Dashboard de estación terrena para el CanSat COSTA (ESP32 + LoRa)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}

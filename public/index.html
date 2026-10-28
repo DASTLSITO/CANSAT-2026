@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>COSTA · Estación terrena</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="cielo" aria-hidden="true"></div>
+
+  <div class="app">
+    <!-- ================= Barra superior ================= -->
+    <header class="barra">
+      <a class="marca" href="#inicio">
+        <span class="orbe-logo"><i></i></span>
+        <span class="marca-txt"><b>COSTA</b><small>Estación terrena · BNO055</small></span>
+      </a>
+
+      <nav class="nav" id="nav">
+        <a href="#inicio" class="activo">Inicio</a>
+        <a href="#telemetria">Telemetría</a>
+        <a href="#bitacora">Bitácora</a>
+      </nav>
+
+      <div class="acciones">
+        <span id="conexion" class="pastilla off">Sin datos</span>
+        <button id="solicitar" class="boton-redondo" title="Pedir una lectura ahora al Nodo A">
+          <svg viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M8.5 12.5a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12.5" r="1"/><path d="M12 13.5V20"/></svg>
+        </button>
+      </div>
+    </header>
+    <p id="ultimo" class="linea-estado"></p>
+
+    <!-- ================= Inicio (vista halo) ================= -->
+    <section id="inicio" class="hero">
+      <!-- Columna izquierda: estado del CanSat -->
+      <aside class="vidrio insights">
+        <h3 class="titulo-panel">Estado del CanSat</h3>
+
+        <p class="sub-panel">Movimiento</p>
+        <a class="insight" href="#telemetria">
+          <span class="icono-orbe giro"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4h-4"/><circle cx="12" cy="12" r="2"/></svg></span>
+          <span class="flecha">↗</span>
+          <small>Según giroscopio y acelerómetro</small>
+          <b id="ins-mov">Sin telemetría</b>
+          <span class="chip ok" id="ins-mov-chip"><i>ω</i><em>—</em></span>
+        </a>
+
+        <p class="sub-panel">Enlace LoRa</p>
+        <a class="insight" href="#telemetria">
+          <span class="icono-orbe antena"><svg viewBox="0 0 24 24"><path d="M5 12.5a7 7 0 0 1 14 0"/><path d="M8.5 12.5a3.5 3.5 0 0 1 7 0"/><circle cx="12" cy="12.5" r="1"/><path d="M12 13.5V20"/></svg></span>
+          <span class="flecha">↗</span>
+          <small id="ins-enlace-sub">RSSI · SNR</small>
+          <b id="ins-enlace">—</b>
+          <span class="chip ok" id="ins-enlace-chip"><i>✓</i><em>—</em></span>
+        </a>
+
+        <p class="sub-panel">Calibración BNO055</p>
+        <a class="insight" href="#telemetria">
+          <span class="icono-orbe brujula-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M15 9l-2 4-4 2 2-4z"/></svg></span>
+          <span class="flecha">↗</span>
+          <small>Sistema · Giro · Acel · Mag</small>
+          <b id="ins-cal">—</b>
+          <span class="chip" id="ins-cal-chip"><i>!</i><em>—</em></span>
+        </a>
+      </aside>
+
+      <!-- Centro: CanSat 3D con halo -->
+      <div class="centro">
+        <div class="orbitas" aria-hidden="true"><i></i><i></i><i></i></div>
+        <div class="hud">
+          <span class="hud-fase" id="hud-fase">Sin telemetría</span>
+          <b id="hud-w">—</b>
+          <small>°/s · velocidad angular</small>
+        </div>
+        <div class="escena3d grande"><div class="escala"><div class="cansat3d" id="cansat3d"></div></div><div class="sombra3d"></div></div>
+        <p class="hud-actitud" id="hud-actitud">—</p>
+        <button class="boton-halo" id="solicitar-2" type="button">Pedir lectura ahora</button>
+      </div>
+
+      <!-- Columna derecha: ficha + brújula -->
+      <aside class="vidrio ficha">
+        <div class="ficha-cab">
+          <div><small>Código</small><h2>COSTA-01</h2></div>
+          <span class="punto-vivo" id="punto-vivo"></span>
+        </div>
+        <div class="ficha-grid">
+          <div><small>Rumbo</small><b id="f-rumbo">—</b></div>
+          <div><small>Alabeo</small><b id="f-alabeo">—</b></div>
+          <div><small>Cabeceo</small><b id="f-cabeceo">—</b></div>
+          <div><small>Vel. angular</small><b id="f-w">—</b></div>
+          <div><small>Señal LoRa</small><b id="f-rssi">—</b></div>
+          <div><small>Paquete</small><b id="f-seq">—</b></div>
+        </div>
+        <div class="ficha-pie">
+          <div><small>Calibración</small><span class="cal-mini" id="f-cal"></span></div>
+          <span class="boton-redondo mini" title="Lecturas en la sesión" id="f-pkts">0</span>
+        </div>
+      </aside>
+
+      <div class="vidrio gauge">
+        <svg viewBox="0 0 200 200" class="instrumento" id="brujula">
+          <circle cx="100" cy="100" r="88" class="i-borde" />
+          <g id="brujula-marcas"></g>
+          <text x="100" y="34" class="i-card n">N</text><text x="170" y="105" class="i-card">E</text>
+          <text x="100" y="176" class="i-card">S</text><text x="30" y="105" class="i-card">O</text>
+          <g id="aguja"><path d="M100 30 L108 100 L100 92 L92 100 Z" class="aguja-n" /><path d="M100 170 L108 100 L100 108 L92 100 Z" class="aguja-s" /></g>
+          <circle cx="100" cy="100" r="5" class="i-centro" />
+        </svg>
+        <small class="gauge-pie" id="brujula-valor">Rumbo —</small>
+      </div>
+
+      <div class="vidrio horas">
+        <div class="cab-panel"><h3>Horizonte artificial</h3></div>
+        <div class="horizonte-cont">
+          <svg viewBox="0 0 200 200" class="instrumento">
+            <defs><clipPath id="clip-horizonte"><circle cx="100" cy="100" r="84" /></clipPath></defs>
+            <g clip-path="url(#clip-horizonte)">
+              <g id="horizonte">
+                <rect x="-100" y="-200" width="400" height="300" class="cielo-h" />
+                <rect x="-100" y="100" width="400" height="300" class="suelo-h" />
+                <line x1="-100" y1="100" x2="300" y2="100" class="linea-h" />
+                <g id="escala-cabeceo"></g>
+              </g>
+            </g>
+            <circle cx="100" cy="100" r="88" class="i-borde" />
+            <path d="M55 100 H85 L92 108 L100 100 L108 108 L115 100 H145" class="avion" />
+          </svg>
+          <div class="horizonte-datos">
+            <div><small>Alabeo</small><b id="h-alabeo">—</b></div>
+            <div><small>Cabeceo</small><b id="h-cabeceo">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="vidrio factores">
+        <div class="cab-panel"><h3>Ejes del BNO055</h3><span class="fuente" id="ejes-fuente"></span></div>
+        <div id="barras-ejes"></div>
+      </div>
+    </section>
+
+    <!-- ================= Telemetría BNO055 ================= -->
+    <section id="telemetria">
+      <h2 class="titulo-seccion">Telemetría del CanSat <span class="tenue">· BNO055 vía LoRa</span></h2>
+      <div class="kpis">
+        <div class="vidrio kpi"><span>Rumbo</span><b id="k-rumbo">—</b><small id="k-rumbo-card">°</small></div>
+        <div class="vidrio kpi"><span>Alabeo</span><b id="k-alabeo">—</b><small>°</small></div>
+        <div class="vidrio kpi"><span>Cabeceo</span><b id="k-cabeceo">—</b><small>°</small></div>
+        <div class="vidrio kpi"><span>Vel. angular |ω|</span><b id="k-w">—</b><small>°/s</small></div>
+        <div class="vidrio kpi"><span>Acel. lineal |a|</span><b id="k-a">—</b><small>m/s²</small></div>
+        <div class="vidrio kpi"><span>Enlace LoRa</span><b id="k-rssi">—</b><small id="k-snr">dBm</small></div>
+        <div class="vidrio kpi"><span>Paquetes</span><b id="k-pkts">—</b><small id="k-perdidos"></small></div>
+        <div class="vidrio kpi"><span>Estado</span><b id="k-fase" class="txt">—</b><small id="k-formato"></small></div>
+      </div>
+
+      <div class="vidrio tarjeta calibracion-tarjeta">
+        <h3>Calibración del BNO055</h3>
+        <div id="cal-barras"></div>
+        <p class="nota">0 = sin calibrar, 3 = calibrado. Para calibrar el magnetómetro (necesario para un rumbo confiable), mueve el CanSat en forma de ocho.</p>
+      </div>
+
+      <div class="graficas">
+        <div class="vidrio tarjeta"><h3>Orientación (Euler)</h3><canvas id="g-ori"></canvas></div>
+        <div class="vidrio tarjeta"><h3>Velocidad angular · giroscopio</h3><canvas id="g-giro"></canvas></div>
+        <div class="vidrio tarjeta"><h3>Aceleración lineal (sin gravedad)</h3><canvas id="g-acel"></canvas></div>
+        <div class="vidrio tarjeta"><h3>Enlace LoRa</h3><canvas id="g-enlace"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ================= Bitácora ================= -->
+    <section id="bitacora">
+      <h2 class="titulo-seccion">Bitácora <span class="tenue">· SQLite, todas las lecturas recibidas</span></h2>
+      <div class="vidrio barra-bitacora">
+        <label>Sesión <select id="b-sesion"></select></label>
+        <span class="tenue" id="b-resumen"></span>
+        <span class="espacio"></span>
+        <button class="boton-halo chico sec" id="b-nueva">Nueva sesión</button>
+        <a class="boton-halo chico" id="b-csv" href="#" download>Exportar CSV</a>
+      </div>
+      <div class="bitacora-grid">
+        <div class="vidrio tabla-cont">
+          <div class="tabla-scroll">
+            <table class="tabla">
+              <thead>
+                <tr>
+                  <th>Fecha y hora</th><th>#</th><th>Rumbo</th><th>Alabeo</th><th>Cabeceo</th>
+                  <th>ωx</th><th>ωy</th><th>ωz</th><th>|ω|</th><th>|a|</th><th>Cal</th><th>RSSI</th><th>SNR</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="b-filas"><tr><td colspan="14" class="vacio">Sin lecturas</td></tr></tbody>
+            </table>
+          </div>
+          <div class="paginacion">
+            <button class="boton-redondo mini" id="b-prev" title="Más recientes">‹</button>
+            <span id="b-pagina">—</span>
+            <button class="boton-redondo mini" id="b-sig" title="Más antiguas">›</button>
+          </div>
+        </div>
+        <div class="vidrio eventos">
+          <h3>Eventos</h3>
+          <ul id="b-eventos"><li class="vacio">Sin eventos</li></ul>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
