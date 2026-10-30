@@ -178,6 +178,7 @@ option { background: #0c1522; }
 .icono-orbe svg { width: 28px; height: 28px; fill: none; stroke: #fff; stroke-width: 1.6; stroke-linecap: round; }
 .icono-orbe.giro { background: radial-gradient(circle at 40% 35%, #e4ffb0, #8fc63a 60%, transparent 72%); box-shadow: 0 0 30px rgba(200, 245, 96, .4); }
 .icono-orbe.antena { background: radial-gradient(circle at 40% 35%, #a6f1ff, #2b8fe6 60%, transparent 72%); box-shadow: 0 0 30px rgba(92, 225, 255, .4); }
+.icono-orbe.fuego { background: radial-gradient(circle at 40% 35%, #ffe08a, #ff4d2e 60%, transparent 72%); box-shadow: 0 0 30px rgba(255, 90, 50, .5); }
 .icono-orbe.gps { background: radial-gradient(circle at 40% 35%, #ffd9a6, #e0783a 60%, transparent 72%); box-shadow: 0 0 30px rgba(255, 159, 107, .4); }
 .icono-orbe.brujula-ic { background: radial-gradient(circle at 40% 35%, #e0c8ff, #8a5ad8 60%, transparent 72%); box-shadow: 0 0 30px rgba(179, 136, 255, .4); }
 
@@ -210,6 +211,7 @@ option { background: #0c1522; }
 .leyenda-3d .eje-y { background: #5be37a; box-shadow: 0 0 6px #5be37a; }
 .leyenda-3d .eje-z { background: #4f8dff; box-shadow: 0 0 6px #4f8dff; }
 .leyenda-3d .eje-w { background: #ffd84a; box-shadow: 0 0 6px #ffd84a; }
+.leyenda-3d .eje-a { background: #ff9df5; box-shadow: 0 0 6px #ff9df5; }
 .leyenda-3d .eje-ref { background: repeating-linear-gradient(90deg, rgba(110, 168, 255, .7) 0 4px, transparent 4px 7px); }
 .hud-actitud { margin: 4px 0 16px; font-size: 13px; color: var(--tenue); font-variant-numeric: tabular-nums; position: relative; z-index: 2; }
 .hud {
@@ -341,6 +343,47 @@ section + section { margin-top: 44px; }
 .cal-mini span.c1, .cal-mini span.c2 { color: var(--medio); }
 .cal-mini span.c3 { color: var(--bajo); }
 
+/* ---------- Riesgo de incendio ---------- */
+.riesgo-grid { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+.riesgo-principal { padding: 20px; display: flex; flex-direction: column; align-items: center; text-align: center; position: relative; }
+.r-gauge { width: 100%; max-width: 280px; }
+.r-pista { fill: none; stroke: rgba(255, 255, 255, .08); stroke-width: 16; stroke-linecap: round; }
+.r-arco { fill: none; stroke: var(--bajo); stroke-width: 16; stroke-linecap: round; stroke-dasharray: 0 999; filter: drop-shadow(0 0 8px currentColor); transition: stroke-dasharray .8s; }
+.r-centro { margin-top: -70px; display: flex; align-items: baseline; gap: 4px; }
+.r-centro b { font: 700 52px "Space Grotesk", sans-serif; text-shadow: 0 0 24px rgba(255, 140, 80, .35); }
+.r-centro small { color: var(--tenue); }
+.r-cat { margin: 4px 0 2px; font: 600 18px "Space Grotesk", sans-serif; }
+.r-angstrom { margin: 0 0 12px; font-size: 13px; color: var(--tenue); }
+.r-alerta { width: 100%; margin-bottom: 12px; padding: 10px 12px; border-radius: 12px; font-size: 13px; text-align: left; line-height: 1.5;
+  color: #ffd6d6; background: rgba(255, 77, 109, .14); border: 1px solid rgba(255, 77, 109, .6); box-shadow: 0 0 22px rgba(255, 77, 109, .25); animation: alerta 1.6s infinite; }
+@keyframes alerta { 50% { box-shadow: 0 0 6px rgba(255, 77, 109, .1); } }
+.r-confianza { width: 100%; text-align: left; font-size: 12.5px; color: var(--tenue); padding-top: 10px; border-top: 1px solid var(--borde); }
+.r-confianza b { color: var(--texto); }
+.r-confianza ul { margin: 6px 0 0; padding-left: 18px; line-height: 1.5; }
+.riesgo-principal > .fuente { margin-top: 10px; }
+.r-factores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.factor-riesgo { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border-radius: 16px; }
+.fr-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.fr-cab small { font-size: 12px; color: var(--tenue); }
+.fr-cab .etiqueta { font-weight: 600; background: rgba(255, 255, 255, .06); white-space: nowrap; }
+.factor-riesgo > b { font: 600 28px "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }
+.factor-riesgo > b small { font: 400 13px Inter, sans-serif; color: var(--tenue); }
+.factor-riesgo p { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--tenue); }
+.factor-riesgo .fuente { margin-top: auto; }
+.r-regla30 { padding: 12px 16px; margin-bottom: 12px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font-size: 13px; }
+.r30 { padding: 4px 10px; border-radius: 999px; border: 1px solid var(--borde); }
+.r30.si { color: var(--alto); border-color: rgba(255, 122, 69, .5); background: rgba(255, 122, 69, .1); }
+.r30.no { color: var(--bajo); border-color: rgba(69, 212, 131, .4); background: rgba(69, 212, 131, .08); }
+.r30.nd { color: var(--tenue); }
+.riesgo-grid2 { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; margin-bottom: 12px; }
+#mapa-riesgo { flex: 1; min-height: 440px; border-radius: 14px; overflow: hidden; border: 1px solid var(--borde); background: #0a1420; position: relative; }
+.metodologia { padding: 14px 18px; font-size: 13.5px; }
+.metodologia summary { cursor: pointer; color: var(--cian); font-weight: 600; }
+.metodo-cuerpo { margin-top: 12px; line-height: 1.6; color: var(--tenue); }
+.metodo-cuerpo b { color: var(--texto); }
+.metodo-cuerpo code { font-size: 12px; color: var(--lima); background: rgba(0, 0, 0, .3); padding: 1px 5px; border-radius: 4px; }
+.metodo-tabla td, .metodo-tabla th { text-align: left !important; white-space: normal !important; vertical-align: top; }
+
 /* ---------- Ambiente y GPS ---------- */
 .ambiente-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 12px; }
 .graficas.una-columna { grid-template-columns: 1fr; }
@@ -398,6 +441,8 @@ section + section { margin-top: 44px; }
   .bitacora-grid { grid-template-columns: 1fr; }
   .cal-pasos { grid-template-columns: 1fr 1fr; }
   .ambiente-grid { grid-template-columns: 1fr; }
+  .riesgo-grid, .riesgo-grid2 { grid-template-columns: 1fr; }
+  .r-factores { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 760px) {
   .app { padding: 12px 16px 40px; }
@@ -411,6 +456,7 @@ section + section { margin-top: 44px; }
   .hud b { font-size: 36px; }
   .graficas { grid-template-columns: 1fr; }
   .cal-pasos { grid-template-columns: 1fr; }
+  .r-factores { grid-template-columns: 1fr; }
   .fila-factor { grid-template-columns: 34px 1fr 90px; }
   .linea-estado { text-align: center; }
 }

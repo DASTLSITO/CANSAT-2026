@@ -10,10 +10,10 @@ Todo lo que hay que saber del CanSat Pyro-SCOUT, de lo más específico a lo má
 6. [Firmware del Nodo B](#6-firmware-del-nodo-b)
 7. [El enlace LoRa](#7-el-enlace-lora): parámetros, perfiles, tiempo en el aire y alcance.
 8. [La API en Python](#8-la-api-en-python): lectura del puerto, bitácora SQLite y endpoints.
-9. [El dashboard](#9-el-dashboard): estructura, librerías y cómo se dibuja cada cosa.
+9. [El dashboard](#9-el-dashboard): estructura, librerías, cómo se dibuja cada cosa y el **índice de riesgo de incendio**.
 10. [Operación](#10-operación): instalación, arranque, lista previa al vuelo.
 11. [Solución de problemas](#11-solución-de-problemas): todo lo que ya nos pasó y cómo se resolvió.
-12. [Visión general](#12-visión-general): arquitectura completa y uso de los datos en la misión.
+12. [Visión general y misión Pyro-SCOUT](#12-visión-general-y-misión-pyro-scout): arquitectura completa, la misión y su fundamentación.
 13. [Glosario](#13-glosario)
 
 > Las cifras de los sensores vienen de sus hojas de datos (Bosch, Aosong, Hanwei, u-blox, Semtech y la del módulo UVM30A). Las de alcance, consumo y autonomía son **aproximadas**: dependen de antenas, batería, temperatura y terreno, y hay que confirmarlas en pruebas.
@@ -539,7 +539,8 @@ Se cargan de internet: **Chart.js 4.4.1** (gráficas), **Leaflet 1.9.4** con map
 
 | Sección | Qué muestra |
 |---|---|
-| **Inicio** | Vista 3D con los ejes del sensor, estado de movimiento, enlace, calibración, GPS, ficha PS-01, brújula, horizonte artificial y barras por eje |
+| **Inicio** | Vista 3D con los ejes del sensor; estado de movimiento, enlace, **riesgo de incendio** y GPS; ficha PS-01, brújula, horizonte artificial y barras por eje |
+| **Riesgo de incendio** | Índice Pyro-SCOUT (0–100), sus factores con fuente, regla 30-30-30, mapa de riesgo, evolución en el tiempo, perfil vertical y metodología ([9.6](#96-índice-de-riesgo-de-incendio)) |
 | **Movimiento** | Indicadores del BNO055, **guía de calibración paso a paso** y gráficas de orientación, giro, aceleración y enlace |
 | **Ambiente y GPS** | Temperatura, humedad, gas, índice UV, altitud, satélites, mapa del recorrido y gráficas |
 | **Bitácora** | Tabla paginada de la base, eventos, selector de sesión, "Nueva sesión" y "Exportar CSV" |
@@ -554,10 +555,12 @@ Se cargan de internet: **Chart.js 4.4.1** (gráficas), **Leaflet 1.9.4** con map
 ### 9.4 La vista 3D con ejes X/Y/Z
 
 - **Qué dibuja** (en un `<canvas>`, sin librerías 3D):
-  - **Ejes de referencia** fijos y punteados (X₀, Y₀, Z₀).
-  - Una **esfera de alambre** pegada al sensor que gira con él.
-  - Los **ejes X (rojo), Y (verde) y Z (azul) del sensor.**
+  - Un **plano cartesiano 3D** fijo: cuadrícula en el plano XY y ejes X₀, Y₀, Z₀ con flechas, marcas cada 2.5 m/s² y números cada 5 m/s². Está en unidades de aceleración, así que la lata se aleja del origen hasta el punto (ax, ay, az) medido, con guías punteadas a los ejes; abajo a la izquierda se lee la última aceleración en ese marco.
+  - Una **lata CanSat** sombreada (su eje es Z del sensor; la franja lima marca +X) que gira **y se desplaza** con el sensor.
+  - Los **ejes X (rojo), Y (verde) y Z (azul) del sensor**, saliendo del centro de la lata.
   - El **vector de velocidad angular ω (amarillo)**: apunta en el eje alrededor del cual está girando, con un largo proporcional a la velocidad.
+  - El **vector de aceleración lineal a (rosa)**: la dirección en la que se está moviendo, en m/s² y sin gravedad.
+- **Cómo se desplaza:** la aceleración lineal (`ax`, `ay`, `az`) se pasa al marco de referencia con el cuaternión y coloca la lata en ese punto del plano cartesiano (llega con un resorte amortiguado; tope de 7.5 m/s²). Se queda ahí hasta el siguiente paquete; con el CanSat quieto la aceleración es ~0 y regresa al origen. Lecturas menores a 0.25 m/s² se toman como ruido. **Es una indicación del movimiento, no la posición real:** integrar la aceleración dos veces para sacar la posición acumula error en segundos, y los paquetes llegan cada ~1 s.
 - **Cómo gira:** usa el **cuaternión** del BNO055. Cada eje del sensor se transforma con la matriz de rotación que sale del cuaternión, `v_ref = R(q) · v_sensor`. Si el firmware no manda cuaternión, lo arma con los ángulos de Euler.
 - **Movimiento suave:** entre un paquete y el siguiente interpola con *slerp* (interpolación esférica de cuaterniones).
 - **Controles:** arrastrar con el mouse gira la vista; doble clic vuelve a la vista inicial.
@@ -569,6 +572,83 @@ Se cargan de internet: **Chart.js 4.4.1** (gráficas), **Leaflet 1.9.4** con map
 | Estado de movimiento | `a_mag > 15` → sacudida fuerte; `w_mag < 3` y `a_mag < 0.5` → en reposo; `w_mag < 30` → balanceo; si no, girando |
 | Gas "% vs primeras lecturas" | Cambio respecto al promedio de las primeras 6 lecturas que se están mostrando |
 | Paquetes perdidos | Suma de huecos en `seq` dentro de la sesión |
+
+### 9.6 Índice de riesgo de incendio
+
+Lo calcula `public/riesgo.js` en el navegador, con cada lectura que llega. La sección "Metodología" del dashboard muestra el mismo resumen.
+
+**Lo que es y lo que no es:** es un **índice orientativo** construido con índices de peligro de incendio publicados. **No es una probabilidad calibrada.** Para calibrarla harían falta datos históricos de incendios de la zona. Tampoco considera el tipo ni la cantidad de vegetación, la pendiente o la lluvia de días anteriores.
+
+#### Índice Pyro-SCOUT (0–100)
+
+Es un promedio ponderado de los componentes disponibles. Si falta alguno, su peso se reparte entre los demás:
+
+| Componente | Sensor | Cálculo | Peso |
+|---|---|---|---|
+| Peligro meteorológico | DHT11 | **Chandler Burning Index** (Chandler et al., 1983), limitado a 0–100 | 55 % |
+| Insolación | UVM30A | Índice UV ÷ 11 × 100 | 20 % |
+| Viento | GPS | Deriva horizontal en los últimos 45 s; 40 km/h = 100 | 25 % |
+| Humo | MQ-2 | Si hay anomalía sostenida, el índice sube a **al menos 70** | alerta |
+
+**Categorías:** < 30 bajo · 30–50 moderado · 50–70 alto · 70–85 muy alto · ≥ 85 extremo.
+
+**Por qué esos pesos:**
+- **Temperatura y humedad (55 %):** son los factores mejor estudiados del peligro de incendio y los que el CanSat mide con más continuidad.
+- **Viento (25 %):** es el principal acelerador de la propagación (por eso existe el índice de Fosberg), pero el CanSat solo lo estima mientras desciende.
+- **UV (20 %):** es contexto; seca el combustible, pero indirectamente.
+
+Son una decisión del proyecto: se pueden ajustar en `PESOS_RIESGO`.
+
+#### Fórmulas (T en °C, HR en %)
+
+- **Chandler Burning Index:**
+  `CBI = ((110 − 1.373·HR) − 0.54·(10.20 − T)) · (124 · 10^(−0.0142·HR)) / 60`
+  Categorías: < 50 bajo · 50–75 moderado · 75–90 alto · 90–97.5 muy alto · > 97.5 extremo.
+- **Índice de Ångström** (Suecia, años 40): `I = HR/20 + (27 − T)/10`
+  < 2.0 incendio muy probable · 2.0–2.5 favorable · 2.5–4.0 poco favorable · > 4.0 improbable. Es la base del texto de "probabilidad" del dashboard. Se muestra, pero no se suma, porque usa las mismas variables que el CBI.
+- **Humedad de equilibrio del combustible fino muerto** (Simard, 1968), con T en °F:
+  - HR < 10 %: `0.03229 + 0.281073·HR − 0.000578·HR·T`
+  - 10 % ≤ HR < 50 %: `2.22749 + 0.160107·HR − 0.01478·T`
+  - HR ≥ 50 %: `21.0606 + 0.005565·HR² − 0.00035·HR·T − 0.483199·HR`
+  Orientación: < 6 % muy seco (arde con mucha facilidad) · 6–10 % seco · 10–15 % moderado · > 15 % húmedo.
+- **Fosberg Fire Weather Index** (Fosberg, 1978), con `m` = humedad del combustible (límite de 30) y `U` = viento en mph:
+  `x = m/30`, `η = 1 − 2x + 1.5x² − 0.5x³`, `FFWI = η · √(1 + U²) / 0.3002`
+- **Viento por GPS:**
+  - Distancia (fórmula del haversine) entre la primera y la última posición con fix de los últimos 45 s, dividida entre el tiempo. Necesita al menos 10 s y 3 posiciones.
+  - Si la distancia es menor a `máx(8 m, 3·HDOP)` se toma como 0, porque es ruido del GPS.
+  - **Solo equivale al viento mientras el CanSat cuelga del paracaídas.**
+- **Anomalía de humo (MQ-2):**
+  - Se toman las lecturas previas (las 80 anteriores, sin las 5 más recientes): `base = mediana` y `MAD = 1.4826 · mediana(|v − base|)`.
+  - Hay alerta si las **3 últimas lecturas** superan `base + máx(4·MAD, 15 % de base, 40 mV)`.
+  - La mediana y la MAD se usan porque un pico aislado no las mueve, a diferencia del promedio y la desviación estándar. Pedir 3 lecturas seguidas evita falsas alarmas por un dato suelto.
+  - Necesita al menos 20 lecturas para tener línea base.
+- **Regla 30-30-30:** temperatura > 30 °C, humedad < 30 % y viento > 30 km/h. Es una regla práctica de los servicios de combate de incendios: si se cumplen las tres, las condiciones son críticas.
+- **Confianza de la medición:** baja la confianza cada uno de estos avisos:
+  - El DHT11 está en el límite de su rango (≤ 0 °C o ≥ 50 °C), o falta.
+  - La lectura se tomó durante una maniobra brusca (BNO055: |ω| > 120 °/s o |a| > 12 m/s²).
+  - No hay posición GPS.
+  - No hay dato de UV.
+
+#### Ejemplo calculado
+
+Con T = 32 °C, HR = 27 %, UV = 6 y sin viento (los pesos se reparten: 0.55/0.75 = 73 % meteo, 0.20/0.75 = 27 % UV):
+
+| Paso | Cálculo | Resultado |
+|---|---|---|
+| CBI | ((110 − 37.07) + 11.77) · (124 · 0.4137) / 60 | **72.4** (moderado) |
+| Ångström | 27/20 + (27 − 32)/10 | **0.85** → incendio muy probable |
+| Humedad del combustible | 2.227 + 0.160·27 − 0.0148·89.6 | **5.2 %** → muy seco |
+| UV | 6/11 × 100 | 54.5 |
+| Índice Pyro-SCOUT | 0.733·72.4 + 0.267·54.5 | **67.6 → alto** |
+
+Si además el MQ-2 detecta una anomalía, el índice sube a 70 (muy alto) y el dashboard muestra la alerta con las coordenadas.
+
+#### En el dashboard
+
+- **Indicador principal:** el índice, su categoría, la clasificación de Ångström, la confianza de la medición con sus avisos y qué sensores entraron en el cálculo.
+- **Seis tarjetas de factores:** Chandler, Ångström, combustible, UV, viento (con Fosberg) y humo, cada una con su valor, su categoría, su peso y su fuente.
+- **Mapa de riesgo:** cada lectura con GPS es un punto coloreado por su índice; las que tuvieron humo aparecen más grandes y con borde rojo. Así se ve dónde coinciden los factores de riesgo, que es el **estudio correlacional** de la misión.
+- **Gráficas:** el índice y el CBI en el tiempo, y el **perfil vertical** de temperatura y humedad contra la altitud GPS.
 
 ---
 
@@ -672,7 +752,7 @@ Revisa que tengan el mismo `PERFIL_RADIO`, la misma frecuencia y el mismo sync w
 
 ---
 
-## 12. Visión general
+## 12. Visión general y misión Pyro-SCOUT
 
 ```
                  CanSat Pyro-SCOUT                                   Estación terrena (PC)
@@ -698,11 +778,37 @@ Revisa que tengan el mismo `PERFIL_RADIO`, la misma frecuencia y el mismo sync w
 6. La API lo empuja al navegador por SSE.
 7. El dashboard actualiza los indicadores, las gráficas, la vista 3D y el mapa.
 
+### 12.1 La misión: "Pyro-SCOUT CanSat"
+
+Pyro-SCOUT funciona como un **pequeño laboratorio ambiental en caída**. Mientras desciende, no solo mide: **correlaciona** los datos para evaluar el estado del ambiente y el riesgo de incendio en la zona de aterrizaje. Busca que coincidan varios factores de riesgo (calor, sequedad, radiación y gas o humo) en una misma posición geográfica.
+
+| Sensor | Papel en la misión |
+|---|---|
+| **DHT11** | Temperatura alta y humedad baja son las condiciones que favorecen la propagación del fuego. Medidas a distintas altitudes dan un **perfil vertical**. Base del índice de Chandler, de Ångström y de la humedad del combustible |
+| **MQ-2** | **Detección temprana:** un pico anómalo de humo o gases durante el descenso puede indicar una combustión incipiente antes de que haya llama visible |
+| **UVM30A** | **Contexto de insolación:** mucha radiación con poca humedad aumenta el riesgo de ignición. Mide UV, no la radiación solar total, pero en días despejados van de la mano |
+| **GPS NEO-6M** | **Georreferencia** cada medición: si hay una anomalía, dice dónde está el posible foco. También permite estimar el viento por la deriva |
+| **BNO055** | Reconstruye la **dinámica del vuelo** (estabilidad, giros, apertura del paracaídas) y **valida** que los datos ambientales se tomaron en condiciones controladas |
+
+### 12.2 Fundamentación (para la memoria o presentación)
+
+- **Relevancia científica y social:** la detección temprana de incendios (en bosques, pastizales, cultivos, zonas urbanas o industriales) es un desafío global. El proyecto se inspira en misiones reales de monitoreo ambiental y propone una plataforma de bajo costo para tomar datos *in situ*. No reemplaza a los satélites, pero demuestra el concepto y la viabilidad de la tecnología.
+- **Desafío técnico demostrable:**
+  - IMU de 9 ejes (BNO055) con fusión de sensores para reconstruir la actitud.
+  - Enlace de telemetría LoRa de largo alcance, con confirmación de paquetes.
+  - Bitácora persistente.
+  - Un índice de riesgo calculado en tiempo real a partir de índices publicados.
+- *(Opcional)* **Pilares de las competencias CanSat (ESA/ESERO):**
+  - **Replicación de una misión real a pequeña escala:** diseño, construcción, pruebas, lanzamiento, operación y análisis, alineada con los objetivos de observación de la Tierra.
+  - **Aprendizaje basado en proyectos:** integra física (atmósfera, dinámica de vuelo), electrónica, comunicaciones, programación y análisis de datos.
+
+### 12.3 Arquitectura y uso de los datos
+
 **Para qué sirve en la misión:** Pyro-SCOUT reúne, en un mismo instante y lugar, **condiciones del aire** (temperatura, humedad, gases o humo y radiación UV), **posición** (GPS) y **comportamiento del vehículo** (orientación, giro y aceleración). Con eso se puede:
 - Construir perfiles verticales de temperatura y humedad durante el descenso.
 - Detectar y ubicar en el mapa aumentos de gas o humo.
 - Medir el índice UV y cómo cambia con la altitud.
-- Evaluar condiciones favorables a incendios: temperatura alta y humedad baja, con el viento estimado por la deriva del GPS.
+- Evaluar en tiempo real el riesgo de incendio con el índice Pyro-SCOUT ([9.6](#96-índice-de-riesgo-de-incendio)) y ubicarlo en el mapa.
 - Reconstruir el vuelo: liberación, apertura del paracaídas, estabilidad, velocidad de descenso y aterrizaje.
 - Recuperar el CanSat con su última posición.
 - Medir la calidad del enlace de comunicaciones.

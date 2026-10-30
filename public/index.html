@@ -25,6 +25,7 @@
 
       <nav class="nav" id="nav">
         <a href="#inicio" class="activo">Inicio</a>
+        <a href="#riesgo">Riesgo de incendio</a>
         <a href="#telemetria">Movimiento</a>
         <a href="#ambiente">Ambiente y GPS</a>
         <a href="#bitacora">Bitácora</a>
@@ -63,13 +64,13 @@
           <span class="chip ok" id="ins-enlace-chip"><i>✓</i><em>—</em></span>
         </a>
 
-        <p class="sub-panel">Calibración BNO055</p>
-        <a class="insight" href="#telemetria">
-          <span class="icono-orbe brujula-ic"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M15 9l-2 4-4 2 2-4z"/></svg></span>
+        <p class="sub-panel">Riesgo de incendio</p>
+        <a class="insight" href="#riesgo">
+          <span class="icono-orbe fuego"><svg viewBox="0 0 24 24"><path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.5 1.5-3.5 2-5 .8 1.4 1.6 2 2.5 2C11 8 11 5.5 12 3z"/></svg></span>
           <span class="flecha">↗</span>
-          <small>Sistema · Giro · Acel · Mag</small>
-          <b id="ins-cal">—</b>
-          <span class="chip" id="ins-cal-chip"><i>!</i><em>—</em></span>
+          <small id="ins-riesgo-sub">Índice Pyro-SCOUT</small>
+          <b id="ins-riesgo">—</b>
+          <span class="chip" id="ins-riesgo-chip"><i>!</i><em>—</em></span>
         </a>
 
         <p class="sub-panel">Posición GPS</p>
@@ -82,7 +83,7 @@
         </a>
       </aside>
 
-      <!-- Centro: CanSat 3D con halo -->
+      <!-- Centro: lata CanSat 3D (giro y desplazamiento del BNO055) -->
       <div class="centro">
         <div class="hud">
           <span class="hud-fase" id="hud-fase">Sin telemetría</span>
@@ -92,7 +93,7 @@
         <canvas id="ejes3d" title="Arrastra para girar la vista · doble clic para volver a la vista inicial"></canvas>
         <div class="leyenda-3d">
           <span><i class="eje-x"></i>X sensor</span><span><i class="eje-y"></i>Y sensor</span><span><i class="eje-z"></i>Z sensor</span>
-          <span><i class="eje-w"></i>ω giro</span><span><i class="eje-ref"></i>referencia</span>
+          <span><i class="eje-w"></i>ω giro</span><span><i class="eje-a"></i>a movimiento</span><span><i class="eje-ref"></i>plano cartesiano (m/s²)</span>
         </div>
         <p class="hud-actitud" id="hud-actitud">—</p>
         <button class="boton-halo" id="solicitar-2" type="button">Pedir lectura ahora</button>
@@ -162,6 +163,60 @@
         <div class="cab-panel"><h3>Ejes del BNO055</h3><span class="fuente" id="ejes-fuente"></span></div>
         <div id="barras-ejes"></div>
       </div>
+    </section>
+
+    <!-- ================= Riesgo de incendio (misión Pyro-SCOUT) ================= -->
+    <section id="riesgo">
+      <h2 class="titulo-seccion">Riesgo de incendio <span class="tenue">· misión Pyro-SCOUT</span></h2>
+      <div class="riesgo-grid">
+        <div class="vidrio riesgo-principal">
+          <svg viewBox="0 0 220 130" class="r-gauge">
+            <path d="M20 115 A90 90 0 0 1 200 115" class="r-pista" />
+            <path d="M20 115 A90 90 0 0 1 200 115" class="r-arco" id="r-arco" />
+          </svg>
+          <div class="r-centro"><b id="r-valor">—</b><small>/ 100</small></div>
+          <p class="r-cat" id="r-cat">—</p>
+          <p class="r-angstrom" id="r-angstrom"></p>
+          <div class="r-alerta" id="r-alerta" hidden></div>
+          <div class="r-confianza" id="r-confianza"></div>
+          <small class="fuente" id="r-composicion"></small>
+        </div>
+        <div class="r-factores" id="r-factores"></div>
+      </div>
+      <div class="vidrio r-regla30" id="r-regla30"></div>
+      <div class="riesgo-grid2">
+        <div class="vidrio tarjeta mapa-tarjeta">
+          <div class="cab-panel"><h3>Mapa de riesgo · cada punto es una lectura</h3><span class="fuente">círculo grande con borde rojo = humo</span></div>
+          <div id="mapa-riesgo"><p class="mapa-vacio" id="mapa-riesgo-vacio">El mapa aparece cuando hay lecturas con posición GPS.</p></div>
+        </div>
+        <div class="graficas una-columna">
+          <div class="vidrio tarjeta"><h3>Índice de riesgo en el tiempo</h3><canvas id="g-riesgo"></canvas></div>
+          <div class="vidrio tarjeta"><h3>Perfil vertical · temperatura y humedad vs altitud</h3><canvas id="g-perfil"></canvas></div>
+        </div>
+      </div>
+      <details class="vidrio metodologia">
+        <summary>Metodología: ¿con qué se calcula el riesgo?</summary>
+        <div class="metodo-cuerpo">
+          <p><b>Índice Pyro-SCOUT (0–100)</b> = promedio ponderado de los componentes disponibles. Si falta alguno, su peso se reparte entre los demás:</p>
+          <table class="tabla metodo-tabla">
+            <tr><th>Componente</th><th>Sensor</th><th>Cómo se calcula</th><th>Peso</th></tr>
+            <tr><td>Peligro meteorológico</td><td>DHT11</td><td><b>Chandler Burning Index</b> (Chandler et al., 1983):<br><code>CBI = ((110 − 1.373·HR) − 0.54·(10.20 − T)) · (124 · 10^(−0.0142·HR)) / 60</code>, limitado a 0–100</td><td>55 %</td></tr>
+            <tr><td>Insolación</td><td>UVM30A</td><td>Índice UV ÷ 11 × 100 (escala de la OMS)</td><td>20 %</td></tr>
+            <tr><td>Viento</td><td>GPS</td><td>Deriva horizontal del CanSat en los últimos 45 s (haversine ÷ tiempo); 40 km/h = 100</td><td>25 %</td></tr>
+            <tr><td>Humo</td><td>MQ-2</td><td>Si el voltaje supera <code>mediana + máx(4·MAD, 15 %, 40 mV)</code> de las lecturas previas durante 3 lecturas seguidas, el índice sube al menos a 70 ("muy alto")</td><td>alerta</td></tr>
+          </table>
+          <p><b>Categorías del índice:</b> &lt; 30 bajo · 30–50 moderado · 50–70 alto · 70–85 muy alto · ≥ 85 extremo.</p>
+          <p><b>Indicadores complementarios</b> (se muestran, pero no entran en la suma, porque también dependen de la temperatura y la humedad):</p>
+          <ul>
+            <li><b>Índice de Ångström</b> (Suecia, años 40): <code>I = HR/20 + (27 − T)/10</code>. &lt; 2.0 incendio muy probable · 2.0–2.5 favorable · 2.5–4.0 poco favorable · &gt; 4.0 improbable.</li>
+            <li><b>Humedad de equilibrio del combustible fino muerto</b> (Simard, 1968): ecuaciones por tramos de humedad, con T en °F. Bajo 6 % la vegetación y los materiales secos arden con mucha facilidad.</li>
+            <li><b>Fosberg Fire Weather Index</b> (Fosberg, 1978): <code>FFWI = η · √(1 + U²) / 0.3002</code>, con η calculado con la humedad del combustible y U el viento en mph.</li>
+            <li><b>Regla 30-30-30:</b> temperatura &gt; 30 °C, humedad &lt; 30 % y viento &gt; 30 km/h; regla práctica de los servicios de combate de incendios.</li>
+          </ul>
+          <p><b>Confianza de la medición:</b> baja si el DHT11 está fuera de su rango (0–50 °C) o falta, si la lectura se tomó durante una maniobra brusca (BNO055: |ω| &gt; 120 °/s o |a| &gt; 12 m/s²), si no hay posición GPS o si no hay UV.</p>
+          <p><b>Limitaciones:</b> es un <b>índice orientativo</b>, no una probabilidad calibrada; para eso harían falta datos históricos de incendios de la zona. No considera el tipo ni la cantidad de vegetación, la pendiente del terreno ni la lluvia de días anteriores. El MQ-2 no distingue el humo de otros gases y necesita precalentarse. El UV del UVM30A solo representa la insolación cuando el sensor mira al cielo, y el viento por GPS solo vale mientras el CanSat cuelga del paracaídas.</p>
+        </div>
+      </details>
     </section>
 
     <!-- ================= Telemetría BNO055 ================= -->
@@ -268,5 +323,6 @@
   </div>
 
   <script src="app.js"></script>
+  <script src="riesgo.js"></script>
 </body>
 </html>

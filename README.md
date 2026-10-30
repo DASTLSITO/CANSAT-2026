@@ -8,6 +8,8 @@ Estación terrena del CanSat **Pyro-SCOUT**. Recibe por LoRa la telemetría del 
 - **UVM30A:** radiación ultravioleta (índice UV).
 - **GPS NEO-6M (GY-GPS6MV2):** posición, altitud, satélites y HDOP, con el recorrido en un mapa.
 
+**Misión Pyro-SCOUT:** con esos datos, el dashboard calcula en tiempo real un **índice de riesgo de incendio** (0–100), aplicable a cualquier entorno. Se basa en índices publicados: Chandler Burning Index, Ångström, humedad del combustible de Simard y Fosberg. Suma la insolación UV y el viento estimado por la deriva del GPS, y lanza una **alerta de humo** cuando el MQ-2 sube de forma anómala. Muestra cada factor con su fuente y un mapa de dónde coinciden los factores de riesgo. Es un índice orientativo, no una probabilidad calibrada.
+
 > **Guía completa del proyecto:** [`docs/GUIA_PYRO-SCOUT.md`](docs/GUIA_PYRO-SCOUT.md). Explica cada sensor, cada variable y qué hacer con ella, las conexiones y la energía, el firmware, el enlace LoRa, la API, el dashboard, la operación y la solución de problemas.
 
 ## Arquitectura
@@ -28,6 +30,7 @@ Estación terrena del CanSat **Pyro-SCOUT**. Recibe por LoRa la telemetría del 
 | Nodo B | `arduino/nodoB_ttgo/nodoB_ttgo.ino` | Recibe por LoRa, responde ACK y escribe cada paquete por USB con RSSI y SNR |
 | API Python | `api/pyroscout_api.py`, `api/bitacora.py` | Lee `/dev/ttyACM0`, valida, guarda en SQLite y transmite en vivo al dashboard |
 | Servidor Node | `server.js` | Sirve el dashboard (`public/`) |
+| Riesgo de incendio | `public/riesgo.js` | Cálculo del índice de riesgo y su sección en el dashboard |
 | Diagnóstico | `arduino/diagnostico_bno055` | Autotest y datos crudos del BNO055 |
 | Batería | `arduino/cargar_pila` | Voltaje y porcentaje de la LiPo en el TTGO |
 

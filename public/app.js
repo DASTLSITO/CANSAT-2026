@@ -150,6 +150,7 @@ function redibujarTelemetria() {
   [gOri, gGiro, gAcel, gEnlace, gAmb, gGas, gUV].forEach((g) => g.update('none'));
   pintarKPIs();
   pintarAmbiente();
+  window.pintarRiesgo?.();   // riesgo.js se carga después de este archivo
   pintarActitud(historial[historial.length - 1]);
   pintarHalo();
 }
@@ -226,16 +227,29 @@ function pintarGuiaCalibracion(p) {
   }).join('');
 }
 
-// ---------- Vista 3D: esfera con los ejes X/Y/Z del sensor ----------
-// Usa el cuaternión del BNO055 (o los ángulos de Euler si el firmware no lo manda).
-// Ejes de referencia fijos + esfera y ejes del sensor que giran con él + vector ω.
+// ---------- Vista 3D: lata CanSat que gira y se desplaza como el sensor ----------
+// Giro: cuaternión del BNO055 (o los ángulos de Euler si el firmware no lo manda).
+// Desplazamiento: aceleración lineal (ax, ay, az, m/s², sin gravedad), llevada al marco de
+// referencia. El plano cartesiano está en m/s² y la lata se coloca en ese punto.
+// Es una indicación visual del movimiento, NO la posición real: integrar la aceleración
+// del BNO055 dos veces acumula error en segundos.
 const ejes3d = (() => {
   const cv = $('ejes3d');
   const ctx = cv.getContext('2d');
   const VISTA = { az: 0.65, el: 0.35 };
   let az = VISTA.az, el = VISTA.el;
   let qAct = [1, 0, 0, 0], qObj = [1, 0, 0, 0], omega = [0, 0, 0], conDatos = false;
+  let acel = [0, 0, 0];                    // aceleración lineal en el marco del sensor
+  let empuje = [0, 0, 0];                  // hacia dónde se empuja la lata (marco de referencia)
+  let acelRef = null;                      // última aceleración medida, en el marco de referencia
+  let pos = [0, 0, 0], vel = [0, 0, 0];    // desplazamiento animado de la lata
+  let ultimoCuadro = performance.now(), ultimoPaquete = null;
   const quieto = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Cuánto se desplaza la lata por cada m/s² y hasta dónde puede llegar (unidades de la escena)
+  const ESCALA_ACEL = 0.12, MAX_DESPLAZ = 0.9, UMBRAL_ACEL = 0.25;
+  // Geometría de la lata (su eje es Z del sensor, como el BNO055 acostado en la placa)
+  const LADOS = 20, RADIO = 0.55, MEDIA_ALTURA = 0.85;
 
   // Arrastrar para girar la vista; doble clic para volver a la inicial
   let arrastre = null;
@@ -270,9 +284,10 @@ const ejes3d = (() => {
       2 * (x * z - w * y) * vx + 2 * (y * z + w * x) * vy + (1 - 2 * (x * x + y * y)) * vz,
     ];
   }
+  const sumar = (a, b) => a.map((c, i) => c + b[i]);
 
   function objetivo(p) {
-    if (!p) { conDatos = false; return; }
+    if (!p) { conDatos = false; empuje = [0, 0, 0]; return; }
     if (p.qw !== null && p.qw !== undefined) {
       qObj = qNorm([p.qw, p.qx, p.qy, p.qz]);
       conDatos = true;
@@ -284,7 +299,28 @@ const ejes3d = (() => {
       conDatos = false;
     }
     omega = [p.wx ?? 0, p.wy ?? 0, p.wz ?? 0];
-    if (quieto) qAct = qObj;
+    acel = [p.ax ?? 0, p.ay ?? 0, p.az ?? 0];
+    // Redibujar el mismo paquete (p. ej. al recargar el historial) no debe repetir el tirón
+    if (p.t === ultimoPaquete && p.t !== undefined) return;
+    ultimoPaquete = p.t;
+    // Por debajo del umbral es ruido del acelerómetro en reposo: la lata se queda en el centro
+    const mag = Math.hypot(...acel);
+    acelRef = conDatos && p.ax !== null && p.ax !== undefined ? rotar(qObj, acel) : null;
+    empuje = conDatos && mag > UMBRAL_ACEL ? rotar(qObj, acel.map((k) => k * ESCALA_ACEL)) : [0, 0, 0];
+    const largo = Math.hypot(...empuje);
+    if (largo > MAX_DESPLAZ) empuje = empuje.map((k) => (k / largo) * MAX_DESPLAZ);
+    if (quieto) { qAct = qObj; pos = empuje; }
+  }
+
+  // Resorte amortiguado: la lata viaja suavemente al punto (ax, ay, az) del último paquete
+  // y se queda ahí. En reposo la aceleración lineal es ~0, así que vuelve sola al origen.
+  function moverLata(dt) {
+    if (quieto) return;
+    const K = 40, AMORT = 11;
+    for (let i = 0; i < 3; i++) {
+      vel[i] += (K * (empuje[i] - pos[i]) - AMORT * vel[i]) * dt;
+      pos[i] += vel[i] * dt;
+    }
   }
 
   function dibujar() {
@@ -293,7 +329,7 @@ const ejes3d = (() => {
     if (!W || !H) return;
     if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
     ctx.clearRect(0, 0, W, H);
-    const S = Math.min(W, H) * 0.27;
+    const S = Math.min(W, H) * 0.25;
     const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
     const proy = ([x, y, z]) => {
       const x1 = x * ca - y * sa, y1 = x * sa + y * ca;
@@ -306,8 +342,8 @@ const ejes3d = (() => {
       ctx.beginPath(); ctx.setLineDash(guiones || []); ctx.strokeStyle = color; ctx.lineWidth = ancho * dpr;
       ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke(); ctx.setLineDash([]);
     };
-    const flecha = (fin, color, etiqueta, ancho = 3) => {
-      const [x0, y0] = proy([0, 0, 0]), [x1, y1, prof] = proy(fin);
+    const flecha = (origen, fin, color, etiqueta, ancho = 3) => {
+      const [x0, y0] = proy(origen), [x1, y1, prof] = proy(sumar(origen, fin));
       const ang = Math.atan2(y1 - y0, x1 - x0), t = 11 * dpr;
       ctx.save();
       ctx.globalAlpha = prof > 0.6 ? 0.55 : 1;
@@ -324,54 +360,142 @@ const ejes3d = (() => {
       ctx.restore();
     };
 
-    // Halo detrás de la esfera
-    const [cx, cy] = proy([0, 0, 0]);
+    // Halo detrás de la lata (la sigue cuando se desplaza)
+    const [cx, cy] = proy(pos);
     const halo = ctx.createRadialGradient(cx, cy, S * 0.6, cx, cy, S * 1.9);
     halo.addColorStop(0, 'rgba(92, 200, 255, 0.22)');
     halo.addColorStop(1, 'rgba(92, 200, 255, 0)');
     ctx.fillStyle = halo; ctx.fillRect(0, 0, W, H);
 
-    // Ejes de referencia (fijos)
-    const L = 1.75, ref = 'rgba(110, 168, 255, 0.55)';
-    [[1, 0, 0, 'X₀'], [0, 1, 0, 'Y₀'], [0, 0, 1, 'Z₀']].forEach(([x, y, z, n]) => {
-      linea([-x * L, -y * L, -z * L], [x * L, y * L, z * L], ref, 1.2, [6 * dpr, 5 * dpr]);
-      const [px, py] = proy([x * L * 1.06, y * L * 1.06, z * L * 1.06]);
-      ctx.fillStyle = ref; ctx.font = `500 ${12 * dpr}px Inter, sans-serif`; ctx.fillText(n, px + 3 * dpr, py + 4 * dpr);
-    });
-
-    // Esfera de alambre fija al sensor (gira con él)
-    const q = qAct;
-    const color = conDatos ? '150, 230, 255' : '140, 155, 175';
-    ctx.lineWidth = 1 * dpr;
-    const tramo = (pts) => {
-      for (let i = 1; i < pts.length; i++) {
-        const a = proy(rotar(q, pts[i - 1])), b = proy(rotar(q, pts[i]));
-        const prof = (a[2] + b[2]) / 2;
-        ctx.strokeStyle = `rgba(${color}, ${prof < 0 ? 0.6 : 0.16})`;
-        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-      }
+    // Plano cartesiano 3D: cuadrícula en el plano XY, ejes X/Y/Z con marcas en m/s².
+    // Las unidades son las de la aceleración: el centro de la lata queda en (ax, ay, az)
+    // del marco de referencia, así que su posición se lee directo en los ejes.
+    const UNIDAD = ESCALA_ACEL;                    // 1 m/s² en unidades de la escena
+    const PASO = 2.5, MARCA_NUM = 5;               // línea cada 2.5 m/s², número cada 5 m/s²
+    const LIM = Math.floor(1.75 / UNIDAD / PASO) * PASO;   // ±12.5 m/s²
+    const texto = (pt, t, color, tam = 11, peso = 500, alinear = 'center') => {
+      const [x, y] = proy(pt);
+      ctx.fillStyle = color; ctx.font = `${peso} ${tam * dpr}px Inter, sans-serif`;
+      ctx.textAlign = alinear; ctx.fillText(t, x, y); ctx.textAlign = 'start';
     };
-    for (let la = -60; la <= 60; la += 30) {
-      const pts = [];
-      for (let lo = 0; lo <= 360; lo += 10) pts.push([Math.cos(la * RAD) * Math.cos(lo * RAD), Math.cos(la * RAD) * Math.sin(lo * RAD), Math.sin(la * RAD)]);
-      tramo(pts);
+    for (let v = -LIM; v <= LIM + 1e-9; v += PASO) {
+      if (Math.abs(v) < 1e-9) continue;
+      const fuerte = Math.abs(v % MARCA_NUM) < 1e-9;
+      const col = `rgba(110, 168, 255, ${fuerte ? 0.2 : 0.09})`;
+      linea([v * UNIDAD, -LIM * UNIDAD, 0], [v * UNIDAD, LIM * UNIDAD, 0], col, 1);
+      linea([-LIM * UNIDAD, v * UNIDAD, 0], [LIM * UNIDAD, v * UNIDAD, 0], col, 1);
     }
-    for (let lo = 0; lo < 180; lo += 30) {
-      const pts = [];
-      for (let la = 0; la <= 360; la += 10) pts.push([Math.cos(la * RAD) * Math.cos(lo * RAD), Math.cos(la * RAD) * Math.sin(lo * RAD), Math.sin(la * RAD)]);
-      tramo(pts);
+    const ejesRef = [
+      [[1, 0, 0], '#ff8a96', 'X'], [[0, 1, 0], '#8af0a2', 'Y'], [[0, 0, 1], '#8ab4ff', 'Z'],
+    ];
+    const extremo = (LIM + PASO * 0.6) * UNIDAD;
+    for (const [d, col, n] of ejesRef) {
+      const fin = d.map((k) => k * extremo), ini = d.map((k) => -k * LIM * UNIDAD);
+      linea(ini, fin, col + 'b0', 1.6);
+      // punta de flecha en el lado positivo
+      const [x0, y0] = proy(d.map((k) => k * (extremo - 0.12))), [x1, y1] = proy(fin);
+      const ang = Math.atan2(y1 - y0, x1 - x0), t = 9 * dpr;
+      ctx.beginPath(); ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - t * Math.cos(ang - 0.45), y1 - t * Math.sin(ang - 0.45));
+      ctx.lineTo(x1 - t * Math.cos(ang + 0.45), y1 - t * Math.sin(ang + 0.45));
+      ctx.closePath(); ctx.fillStyle = col; ctx.fill();
+      texto(d.map((k) => k * (extremo + 0.18)), `${n}₀`, col, 13, 700);
+      // marcas y números
+      for (let v = -LIM; v <= LIM + 1e-9; v += PASO) {
+        if (Math.abs(v) < 1e-9) continue;
+        const c = d.map((k) => k * v * UNIDAD);
+        const perp = d[2] ? [0.05, 0, 0] : [0, 0, 0.05];
+        linea(sumar(c, perp.map((k) => -k)), sumar(c, perp), col + '90', 1.2);
+        if (Math.abs(v % MARCA_NUM) < 1e-9) texto(sumar(c, d[2] ? [0.16, 0, 0] : [0, 0, -0.16]), String(v), col + 'c0', 10);
+      }
+    }
+    texto([0.08, 0.08, -0.14], '0', 'rgba(232, 241, 251, 0.6)', 10, 500, 'left');
+    texto([-LIM * UNIDAD, -LIM * UNIDAD, -0.25], 'm/s²', 'rgba(232, 241, 251, 0.5)', 10, 500, 'left');
+
+    // Proyección del centro de la lata sobre el plano XY y guías a los ejes
+    const despl = Math.hypot(...pos);
+    if (despl > 0.03) {
+      const guia = 'rgba(200, 245, 96, 0.5)', sobrePlano = [pos[0], pos[1], 0];
+      linea(sobrePlano, pos, guia, 1, [3 * dpr, 4 * dpr]);
+      linea(sobrePlano, [pos[0], 0, 0], guia, 1, [3 * dpr, 4 * dpr]);
+      linea(sobrePlano, [0, pos[1], 0], guia, 1, [3 * dpr, 4 * dpr]);
+      linea([0, 0, 0], pos, 'rgba(200, 245, 96, 0.7)', 1.5);
+      const [px, py] = proy(sobrePlano);
+      ctx.beginPath(); ctx.arc(px, py, 3.5 * dpr, 0, Math.PI * 2); ctx.fillStyle = '#c8f560'; ctx.fill();
+    }
+    // Última aceleración medida en el marco de referencia (hacia dónde se movió la lata)
+    if (acelRef) {
+      ctx.fillStyle = 'rgba(200, 245, 96, 0.9)'; ctx.font = `600 ${12 * dpr}px "Space Grotesk", sans-serif`;
+      ctx.fillText(`a = (${acelRef.map((k) => fmt(k, 1)).join(', ')}) m/s²`, 12 * dpr, H - 14 * dpr);
     }
 
-    // Ejes del sensor (del más lejano al más cercano) y vector de velocidad angular
+    // Lata: caras laterales y tapas, ordenadas de la más lejana a la más cercana
+    const q = qAct;
+    const aMundo = (v) => sumar(rotar(q, v), pos);
+    const luz = [0.35, -0.55, 0.75];      // de dónde viene la luz (marco de referencia)
+    const caras = [];
+    for (let i = 0; i < LADOS; i++) {
+      const a0 = (i / LADOS) * Math.PI * 2, a1 = ((i + 1) / LADOS) * Math.PI * 2, am = (a0 + a1) / 2;
+      const p = [
+        [Math.cos(a0) * RADIO, Math.sin(a0) * RADIO, -MEDIA_ALTURA], [Math.cos(a1) * RADIO, Math.sin(a1) * RADIO, -MEDIA_ALTURA],
+        [Math.cos(a1) * RADIO, Math.sin(a1) * RADIO, MEDIA_ALTURA], [Math.cos(a0) * RADIO, Math.sin(a0) * RADIO, MEDIA_ALTURA],
+      ];
+      // La franja de frente (+X del sensor) va en lima, como la marca ▲ de la lata anterior
+      const frente = i === 0 || i === LADOS - 1;
+      caras.push({ p, normal: [Math.cos(am), Math.sin(am), 0], tipo: frente ? 'frente' : 'lado' });
+    }
+    const tapa = (z) => Array.from({ length: LADOS }, (_, i) => {
+      const a = (i / LADOS) * Math.PI * 2;
+      return [Math.cos(a) * RADIO, Math.sin(a) * RADIO, z];
+    });
+    caras.push({ p: tapa(MEDIA_ALTURA), normal: [0, 0, 1], tipo: 'arriba' });
+    caras.push({ p: tapa(-MEDIA_ALTURA), normal: [0, 0, -1], tipo: 'abajo' });
+
+    const conAlfa = conDatos ? 1 : 0.35;
+    const pintadas = caras.map((c) => {
+      const pts = c.p.map((v) => proy(aMundo(v)));
+      const n = rotar(q, c.normal);
+      const brillo = 0.45 + 0.55 * Math.max(0, n[0] * luz[0] + n[1] * luz[1] + n[2] * luz[2]);
+      return { ...c, pts, brillo, prof: pts.reduce((s, x) => s + x[2], 0) / pts.length };
+    }).sort((a, b) => b.prof - a.prof);
+
+    for (const c of pintadas) {
+      const b = c.brillo;
+      const relleno = c.tipo === 'frente' ? `rgba(${200 * b | 0}, ${245 * b | 0}, ${96 * b | 0}, ${0.85 * conAlfa})`
+        : c.tipo === 'arriba' ? `rgba(${140 * b | 0}, ${220 * b | 0}, ${255 * b | 0}, ${0.8 * conAlfa})`
+        : c.tipo === 'abajo' ? `rgba(${20 * b | 0}, ${60 * b | 0}, ${95 * b | 0}, ${0.85 * conAlfa})`
+        : `rgba(${70 * b | 0}, ${160 * b | 0}, ${215 * b | 0}, ${0.78 * conAlfa})`;
+      ctx.beginPath();
+      c.pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fillStyle = relleno; ctx.fill();
+      ctx.strokeStyle = `rgba(160, 230, 255, ${0.35 * conAlfa})`; ctx.lineWidth = 1 * dpr; ctx.stroke();
+      if (c.tipo === 'arriba') {
+        const [tx, ty] = proy(aMundo([0, 0, MEDIA_ALTURA]));
+        ctx.save();
+        ctx.fillStyle = `rgba(232, 251, 255, ${0.9 * conAlfa})`; ctx.font = `600 ${10 * dpr}px "Space Grotesk", sans-serif`;
+        ctx.textAlign = 'center'; ctx.fillText('PYRO-SCOUT', tx, ty + 4 * dpr);
+        ctx.restore();
+      }
+    }
+
+    // Ejes del sensor desde el centro de la lata y vector de velocidad angular
     const ejes = [[[1, 0, 0], '#ff5c6c', 'X'], [[0, 1, 0], '#5be37a', 'Y'], [[0, 0, 1], '#4f8dff', 'Z']]
-      .map(([v, c, n]) => { const w = rotar(q, v.map((k) => k * 1.5)); return { w, c, n, prof: proy(w)[2] }; })
+      .map(([v, c, n]) => { const w = rotar(q, v.map((k) => k * 1.5)); return { w, c, n, prof: proy(sumar(pos, w))[2] }; })
       .sort((a, b) => b.prof - a.prof);
-    if (conDatos) ejes.forEach((e) => flecha(e.w, e.c, e.n));
+    if (conDatos) ejes.forEach((e) => flecha(pos, e.w, e.c, e.n));
     const wMag = Math.hypot(...omega);
     if (conDatos && wMag > 2) {
       const largo = clamp(wMag / 90, 0.25, 1.6);
       const dir = rotar(q, omega.map((k) => (k / wMag) * largo));
-      flecha(dir, '#ffd84a', `ω ${fmt(wMag, 0)}°/s`, 2.5);
+      flecha(pos, dir, '#ffd84a', `ω ${fmt(wMag, 0)}°/s`, 2.5);
+    }
+    // Vector de aceleración lineal (en qué dirección se está moviendo)
+    const aMag = Math.hypot(...acel);
+    if (conDatos && aMag > UMBRAL_ACEL) {
+      const largo = clamp(aMag / 4, 0.3, 1.6);
+      const dir = rotar(q, acel.map((k) => (k / aMag) * largo));
+      flecha(pos, dir, '#ff9df5', `a ${fmt(aMag, 1)} m/s²`, 2.5);
     }
     if (!conDatos) {
       ctx.fillStyle = 'rgba(232, 241, 251, 0.7)'; ctx.font = `500 ${13 * dpr}px Inter, sans-serif`; ctx.textAlign = 'center';
@@ -379,9 +503,12 @@ const ejes3d = (() => {
     }
   }
 
-  function bucle() {
+  function bucle(ahora) {
+    const dt = Math.min(0.05, (ahora - ultimoCuadro) / 1000);
+    ultimoCuadro = ahora;
     if (!document.hidden) {
-      qAct = slerp(qAct, qObj, 0.18);   // movimiento suave entre un paquete y el siguiente
+      qAct = slerp(qAct, qObj, 0.18);   // giro suave entre un paquete y el siguiente
+      moverLata(dt);
       dibujar();
     }
     requestAnimationFrame(bucle);
@@ -587,16 +714,6 @@ function pintarHalo() {
   $('ins-enlace-sub').textContent = p?.snr !== null && p?.snr !== undefined ? `SNR ${fmt(p.snr)} dB` : 'RSSI · SNR';
   $('ins-enlace-chip').className = 'chip' + (n === 0 ? '' : pctPerd < 5 ? ' ok' : pctPerd < 20 ? '' : ' alto');
   $('ins-enlace-chip').querySelector('em').textContent = n ? `${n} recibidos · ${perd} perdidos (${fmt(pctPerd, 1)} %)` : 'Sin paquetes en esta sesión';
-
-  // Calibración
-  const cal = CAMPOS_CAL.map((k) => p?.[k]);
-  const conCal = cal.every((v) => v !== null && v !== undefined);
-  $('ins-cal').textContent = conCal ? cal.join(' · ') : '—';
-  const chip = $('ins-cal-chip');
-  if (!conCal) { chip.className = 'chip'; chip.querySelector('em').textContent = p ? 'El firmware no envía calibración' : '—'; }
-  else if (cal.every((v) => v === 3)) { chip.className = 'chip ok'; chip.querySelector('em').textContent = 'Totalmente calibrado'; }
-  else if (cal[3] < 3) { chip.className = 'chip'; chip.querySelector('em').textContent = 'Mueve el CanSat en forma de ocho para calibrar el magnetómetro'; }
-  else { chip.className = 'chip'; chip.querySelector('em').textContent = 'Calibrando… deja el CanSat quieto unos segundos'; }
 
   // GPS
   const ultFix = ultimaPosicion();
